@@ -79,7 +79,12 @@ datasets" matches the 8 test rows; RSNA Spine and MRNet were used only for devel
   (segment 1 GTVp, 2 GTVn, defined on CT). Converted with okapy: PET to SUVbw.
 - Baseline: PET only, 192^3 at 1 mm centred on the GTVp bounding box, z-scored like
   pretraining. Cases without GTVp are excluded. Combining CT/PET/GTVn is future work.
-- Labels: HPV status, unknown excluded. Label file name and columns are ASSUMED to follow
-  HECKTOR 2022 conventions (`PatientID`, `HPV status (0=-, 1=+)`) until confirmed.
+- Labels: `hecktor2022_HPV_outcomesBalanced_nospaces.csv` (`PatientID`, `Outcome`), with
+  102 patients and 52 positive. ASSUMPTION: `Outcome` 1 = HPV positive.
+- **Centre confounding.** HPV prevalence by centre: MDA 30/31, CHUM 7/8, HGJ 7/17, CHUS 2/8,
+  CHUV 1/4, CHUP 5/34. Predicting from the centre alone (`group_prior`) gives a test AUROC
+  of 0.84 ± 0.01 over the 5 splits. Splits stratify on centre x label (strata smaller than
+  4 are merged into their label group). A leave-one-centre-out evaluation would remove
+  this shortcut; it is not implemented yet.
 - Folder names carry a curation index (`CHUM-029-86`); the label key is the DICOM
   PatientID (`CHUM-029`).

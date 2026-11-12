@@ -17,14 +17,14 @@ from nnfoundation_bench.config import INTERIM_DATA_DIR, PET_PAD_VALUE, RAW_DATA_
 from nnfoundation_bench.datasets.base import CaseInputs, ClassificationTask
 
 SOURCE = "hecktor_euvip2024_hpv"
-RAW_DIR = RAW_DATA_DIR / SOURCE
+RAW_DIR = RAW_DATA_DIR / "HECKTOR_EUVIP2024_HPV"  # symlink to the NAS copy
 CONVERTED_DIR = INTERIM_DATA_DIR / SOURCE / "converted"
 
-# ASSUMPTION until the curated label file is available: HECKTOR 2022 clinical-info
-# conventions (PatientID like "CHUM-029", HPV coded 0/1, empty = unknown).
-LABELS_PATH = RAW_DIR / "hpv_status.csv"
+# Curated, class-balanced subset of HECKTOR 2022 (102 patients, 52 positive).
+# ASSUMPTION: Outcome 1 = HPV positive (inferred from the file name).
+LABELS_PATH = RAW_DIR / "hecktor2022_HPV_outcomesBalanced_nospaces.csv"
 LABELS_ID_COLUMN = "PatientID"
-LABELS_HPV_COLUMN = "HPV status (0=-, 1=+)"
+LABELS_HPV_COLUMN = "Outcome"
 
 
 def download() -> None:
@@ -94,7 +94,12 @@ def converted_inputs(case_id: str, image: str, roi: str) -> CaseInputs:
 
 
 def hpv_labels(table: pd.DataFrame, cases: list[str]) -> pd.DataFrame:
-    """Binary HPV status per case folder; cases with unknown status are dropped."""
+    """Binary HPV status per case folder; cases with unknown status are dropped.
+
+    ``group`` = centre and ``stratum`` = centre x label: HPV prevalence differs strongly
+    between centres (e.g. MDA 30/31 positive, CHUP 5/34), so splits keep the centre mix
+    balanced and ``nnfb-predict group-baseline`` reports what the centre alone predicts.
+    """
     status = table.set_index(LABELS_ID_COLUMN)[LABELS_HPV_COLUMN]
     rows = [
         {"case_id": case, "label": int(status[patient_id(case)])}
@@ -103,7 +108,9 @@ def hpv_labels(table: pd.DataFrame, cases: list[str]) -> pd.DataFrame:
     ]
     if dropped := len(cases) - len(rows):
         logger.warning(f"{dropped} cases without a known HPV status are excluded")
-    return pd.DataFrame(rows, columns=["case_id", "label"])
+    labels = pd.DataFrame(rows, columns=["case_id", "label"])
+    labels["group"] = labels["case_id"].str.split("-").str[0]  # centre
+    return labels.assign(stratum=labels["group"] + "_" + labels["label"].astype(str))
 
 
 HECKTOR_HPV_PET_GTVP = ClassificationTask(

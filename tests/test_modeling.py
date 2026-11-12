@@ -2,7 +2,7 @@ import math
 
 import numpy as np
 
-from nnfoundation_bench.modeling.predict import binary_metrics
+from nnfoundation_bench.modeling.predict import binary_metrics, group_prior_scores
 from nnfoundation_bench.modeling.runs import run_name
 from nnfoundation_bench.modeling.train import build_command
 
@@ -43,3 +43,15 @@ def test_train_split_repeats_to_fixed_epoch_length(tmp_path, monkeypatch):
     (tmp_path / "splits.json").write_text(json.dumps(split))
     assert len(Generic3DDataset(tmp_path, "train")) == 10
     assert len(Generic3DDataset(tmp_path, "val")) == 1
+
+
+def test_group_prior_scores_use_train_val_rates_only():
+    import pandas as pd
+
+    labels = pd.DataFrame(
+        {"case_id": list("abcdef"), "label": [1, 1, 0, 0, 1, 0], "group": list("AABBAC")}
+    )
+    split = {"train": ["a", "c"], "val": ["b", "d"], "test": ["e", "f"]}
+    scores = group_prior_scores(labels, split).set_index("case_id")["score"]
+    assert scores["e"] == 1.0  # group A is all positive in train+val
+    assert scores["f"] == 0.5  # unseen group C -> overall train+val rate

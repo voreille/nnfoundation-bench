@@ -76,4 +76,8 @@ done
 wait
 
 echo "== Summary"
+# Confounder reference (e.g. centre alone) for tasks whose labels.csv has a group column
+if head -1 "${NNFB_DATA_DIR:-data}/processed/$TASK/labels.csv" | grep -q group; then
+  uv run nnfb-predict group-baseline "$TASK"
+fi
 uv run nnfb-predict summarize "$TASK"

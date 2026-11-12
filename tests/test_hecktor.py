@@ -23,7 +23,12 @@ def test_hpv_labels_drop_unknown_and_unlisted():
         {LABELS_ID_COLUMN: ["CHUM-029", "MDA-050", "HGJ-010"], LABELS_HPV_COLUMN: [1, 0, None]}
     )
     labels = hpv_labels(table, ["CHUM-029-86", "MDA-050-55", "HGJ-010-83", "CHUP-003-17"])
-    assert labels.to_dict("list") == {"case_id": ["CHUM-029-86", "MDA-050-55"], "label": [1, 0]}
+    assert labels.to_dict("list") == {
+        "case_id": ["CHUM-029-86", "MDA-050-55"],
+        "label": [1, 0],
+        "group": ["CHUM", "MDA"],
+        "stratum": ["CHUM_1", "MDA_0"],
+    }
 
 
 def test_task_registered():

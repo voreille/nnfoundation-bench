@@ -92,19 +92,40 @@ def write_b2nd(array: np.ndarray, path: Path) -> None:
     tmp.rename(path)
 
 
+def _strata(labels: np.ndarray, strata: np.ndarray, min_count: int) -> np.ndarray:
+    """Use ``strata`` where each group has >= ``min_count`` cases, else fall back to the label."""
+    values, counts = np.unique(strata, return_counts=True)
+    rare = set(values[counts < min_count])
+    out = np.array([str(lab) if s in rare else s for lab, s in zip(labels, strata, strict=True)])
+    # sklearn needs >= 2 cases per group; leftovers join the largest group.
+    values, counts = np.unique(out, return_counts=True)
+    largest = values[np.argmax(counts)]
+    return np.where(np.isin(out, values[counts < 2]), largest, out)
+
+
 def stratified_split(
     labels: pd.DataFrame,
     fractions: dict[str, float] = SPLIT_FRACTIONS,
     seed: int = DEFAULT_SEED,
+    min_stratum: int = 4,
 ) -> dict[str, list[str]]:
-    """Label-stratified train/val/test split of ``labels.case_id``."""
+    """Stratified train/val/test split of ``labels.case_id``.
+
+    Stratifies on ``labels.stratum`` when present (e.g. centre x label), otherwise on
+    the label. Strata smaller than ``min_stratum`` are merged into their label's group.
+    """
     cases, y = labels["case_id"].to_numpy(), labels["label"].to_numpy()
-    train_val, test, y_train_val, _ = train_test_split(
-        cases, y, test_size=fractions["test"], stratify=y, random_state=seed
-    )
+    strata = labels["stratum"].astype(str).to_numpy() if "stratum" in labels else y.astype(str)
+    train_val, test, y_tv, _, s_tv, _ = train_test_split(
+        cases, y, strata, test_size=fractions["test"], random_state=seed,
+        stratify=_strata(y, strata, min_stratum),
+    )  # fmt: skip
     val_share = fractions["val"] / (fractions["train"] + fractions["val"])
     train, val = train_test_split(
-        train_val, test_size=val_share, stratify=y_train_val, random_state=seed
+        train_val,
+        test_size=val_share,
+        random_state=seed,
+        stratify=_strata(y_tv, s_tv, min_stratum),
     )
     return {"train": sorted(train), "val": sorted(val), "test": sorted(test)}
 

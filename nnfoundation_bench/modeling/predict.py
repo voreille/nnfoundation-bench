@@ -80,6 +80,38 @@ def predict(
     logger.success(f"{task} {run} fold {fold}: AUROC {metrics['auroc']:.4f}")
 
 
+def group_prior_scores(labels: pd.DataFrame, split: dict[str, list[str]]) -> pd.DataFrame:
+    """Score test cases by the positive rate of their group in train+val."""
+    fit = labels[labels["case_id"].isin(split["train"] + split["val"])]
+    prior = fit.groupby("group")["label"].mean()
+    test = labels[labels["case_id"].isin(split["test"])]
+    score = test["group"].map(prior).fillna(fit["label"].mean())
+    return test[["case_id", "label"]].assign(score=score.to_numpy())
+
+
+@app.command("group-baseline")
+def group_baseline(task: str) -> None:
+    """Reference run 'group_prior': predict from the case's group (e.g. centre) alone.
+
+    Needs a ``group`` column in labels.csv. Shows how much of a task is solvable from
+    confounders; model AUROCs should be read against it.
+    """
+    root = PROCESSED_DATA_DIR / task
+    labels = pd.read_csv(root / "labels.csv")
+    if "group" not in labels:
+        raise typer.Exit(f"{task} has no group column in labels.csv")
+    labels = labels[labels["case_id"].isin(json.loads((root / "labels.json").read_text()))]
+    for fold, split in enumerate(json.loads((root / "splits.json").read_text())):
+        cases = group_prior_scores(labels, split)
+        out_dir = results_dir(task, "group_prior", fold)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        cases.to_csv(out_dir / "predictions.csv", index=False)
+        metrics = {"task": task, "run": "group_prior", "fold": fold}
+        metrics |= binary_metrics(cases["label"].to_numpy(), cases["score"].to_numpy())
+        (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
+        logger.info(f"group_prior fold {fold}: AUROC {metrics['auroc']:.4f}")
+
+
 @app.command()
 def summarize(task: str) -> None:
     """Mean/std AUROC over folds for every evaluated run of TASK."""

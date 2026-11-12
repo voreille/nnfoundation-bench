@@ -40,6 +40,8 @@ code skips work that is already done.
 - `uv run nnfb-data list | download <task> | prepare <task>`
 - `uv run nnfb-train <task> --model cnn|vit --fold k [--gpus 0,1 --scratch --lr --epochs --tag]`
 - `uv run nnfb-predict predict <task> --model ... --fold k` and `uv run nnfb-predict summarize <task>`
+- `uv run nnfb-predict group-baseline <task>`: reference run `group_prior` that predicts from the
+  `group` column alone (HECKTOR: centre). Always compare model AUROC against it.
 - `scripts/run_benchmark.sh <task>` (host only) runs download, prepare, every
   pretrained model x fold spread over `GPUS` (`SCRATCH=1` adds random-init baselines),
   then the summary. It skips
@@ -47,7 +49,8 @@ code skips work that is already done.
 
 ## Layout (Cookiecutter Data Science)
 - `data/raw/<source>/`: immutable downloads, pinned to fixed revisions and checksummed where possible.
-- `data/raw/hecktor_euvip2024_hpv/`: curated HECKTOR DICOM (registration-gated, placed by hand).
+- `data/raw/HECKTOR_EUVIP2024_HPV/`: symlink to the read-only NAS copy (NFS) of the curated
+  HECKTOR DICOM + `hecktor2022_HPV_outcomesBalanced_nospaces.csv` (registration-gated, placed by hand).
 - `data/interim/<source>/`: per-source caches shared by its tasks: `totalseg/` (KiTS ROI
   masks), `converted/<case>/` (okapy NIfTI: CT HU, PET SUVbw, one mask per SEG segment + manifest.json).
 - `data/interim/<task>/{images,masks}/`: QC crops as NIfTI (float32 in HU/SUV), viewable in ITK-SNAP.
@@ -76,6 +79,8 @@ code skips work that is already done.
    (cache any conversion/segmentation under `data/interim/<source>/`), and a
    `ClassificationTask` per (target, modality, ROI) combination. Prefer the dataset's own
    ROI masks (`require_roi=True`: cases without ROI are excluded and listed in dataset.json).
+   Multi-centre data: also return `group` (centre) and `stratum` (centre x label) columns.
+   Splits then stratify on `stratum`, and `group-baseline` measures confounding.
 2. Pin download revisions (commit SHA / checksum). Make downloads resumable and idempotent.
 3. Register the task in `datasets/__init__.py::TASKS`.
 4. Document the label definition, and mark it ASSUMPTION if the paper does not specify it.

@@ -115,3 +115,20 @@ def test_export_is_readable_by_glovita(tmp_path):
     dataset = Generic3DDataset(tmp_path, "train", fold="0")
     image, label = dataset[0]
     assert label == 1 and np.allclose(image.numpy(), volume)
+
+
+def test_split_balances_centres_and_tolerates_tiny_strata():
+    # Confounded centres like HECKTOR: A mostly positive, B mostly negative, C tiny.
+    rows = [("A", 1)] * 30 + [("A", 0)] * 2 + [("B", 0)] * 28 + [("B", 1)] * 6 + [("C", 0)] * 1
+    labels = pd.DataFrame(
+        {
+            "case_id": [f"c{i}" for i in range(len(rows))],
+            "label": [lab for _, lab in rows],
+            "stratum": [f"{c}_{lab}" for c, lab in rows],
+        }
+    )
+    for seed in range(5):
+        split = stratified_split(labels, seed=seed)
+        test = labels[labels["case_id"].isin(split["test"])]
+        assert abs((test["stratum"] == "A_1").sum() - 15) <= 1
+        assert abs((test["stratum"] == "B_0").sum() - 14) <= 1
