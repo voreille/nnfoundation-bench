@@ -18,6 +18,7 @@ as input channels, ROI handling, and how to pool features within a ROI.
 |------|------|----------|---------|
 | `kits_liver` | 2/489 raw images downloaded | prepare, train and predict smoke-tested | none yet |
 | `hecktor_hpv_pet_gtvp` | 102 patients on the NAS, labels found | okapy conversion and crop smoke-tested on 3 patients | centre-only reference: AUROC 0.839 ± 0.011 |
+| `mrnet_*` (9 tasks) | 1250 public exams on the NAS; all file sizes and 40 md5s checked | npy-to-NIfTI conversion and crop smoke-tested on 2 exams per plane | none yet |
 
 Next steps:
 1. Run `uv run nnfb-data prepare hecktor_hpv_pet_gtvp` on the host, then check
@@ -26,6 +27,8 @@ Next steps:
 3. Then work on design choices: CT+PET channels, adding GTVn, ROI pooling of features
    (frozen-feature probes), and leave-one-centre-out evaluation.
 4. KiTS Liver full run (background, paper reproduction).
+5. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
+   "pathology"). Each task needs about 12 GB in `data/processed`. See D12.
 
 ## Results
 
@@ -38,6 +41,10 @@ Test AUROC, mean ± std over the 5 repeated 40/10/50 splits unless noted.
 | `group_prior` (centre only) | 0.839 ± 0.011 | reference, no image; see D9 in decisions.md |
 
 ### kits_liver
+
+None yet.
+
+### mrnet_*
 
 None yet.
 
@@ -59,3 +66,7 @@ None yet.
   converted with okapy. ROI masks are now exported next to the images.
 - Found the HPV labels. HPV status is strongly confounded with centre (centre-only
   AUROC 0.84). Splits now stratify on centre × label, and a centre-only baseline was added.
+- Added MRNet: 9 tasks (abnormal/ACL/meniscus x sagittal/coronal/axial). The data has no
+  spacing and no ROI masks, so we assume 0.625 x 0.625 x 4 mm and use the field of view as
+  the ROI (D12). Found that the Redivis label CSVs have no header row.
+

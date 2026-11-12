@@ -7,9 +7,10 @@ To add a dataset: create ``datasets/<source>.py`` exposing one or more
 from nnfoundation_bench.datasets.base import CaseInputs, ClassificationTask
 from nnfoundation_bench.datasets.hecktor import HECKTOR_HPV_PET_GTVP
 from nnfoundation_bench.datasets.kits import KITS_LIVER
+from nnfoundation_bench.datasets.mrnet import MRNET_TASKS
 
 TASKS: dict[str, ClassificationTask] = {
-    task.name: task for task in (KITS_LIVER, HECKTOR_HPV_PET_GTVP)
+    task.name: task for task in (KITS_LIVER, HECKTOR_HPV_PET_GTVP, *MRNET_TASKS)
 }
 
 

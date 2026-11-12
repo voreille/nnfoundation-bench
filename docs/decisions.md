@@ -93,3 +93,34 @@ instead of editing the old one. Status is one of: **active**, **superseded by Dn
   the script's `metrics.json` check).
 - **Why:** the Make targets were only aliases with no file dependencies. Training
   arguments change per run, so plain commands are clearer.
+
+## D12. MRNet: one task per target x plane, assumed geometry, FOV as ROI (active, 2026-11-12)
+- **Fact:** the public MRNet release (Stanford AIMI / Redivis, placed by hand on the NAS)
+  has 1250 exams (1130 train + 120 valid; the 120-exam test set is withheld). Each exam
+  has three separate uint8 `.npy` series, sagittal T2 FS, coronal T1 and axial PD, at
+  256x256 with 17-61 slices. They carry **no spacing or orientation** and **no ROI masks**.
+  Labels: abnormal 1008, ACL tear 262, meniscus tear 449 (not exclusive).
+- **Choice:**
+  - Nine tasks `mrnet_<abnormal|acl|meniscus>_<sagittal|coronal|axial>`. Each is a
+    single-channel series, matching how the models were pretrained.
+  - Assumed geometry (ASSUMPTION): in-plane spacing 0.625 mm, slice spacing 4 mm, and an
+    axis mapping read off rendered slices. After reorientation every plane is
+    (S-I, A-P, L-R).
+  - The ROI is the series' field of view: the crop is centred on the volume, and the whole
+    series fits in 192³ at 1 mm. The exported mask marks data vs padding. Pad value 0.
+  - All 1250 public exams are pooled and split 40/10/50 with our usual 5 seeds, stratified
+    on the label. The official train/valid split is not used.
+- **Why:** this follows the paper's 1 mm / 192³ / 40/10/50 protocol as closely as the data
+  allows. The paper lists MRNet only as a development dataset ("pathology") with no details.
+- **Rejected:**
+  - Stacking the three planes as channels: they are different series with no shared
+    geometry, and the models take one channel.
+  - Keeping the official split: its 120-exam valid set is too small for a 50% test share.
+- **Open:**
+  - The true spacing. MRNet's S1 Table is not online. A wrong slice spacing stretches the
+    anatomy along one axis.
+  - Patient leakage: 1130 train exams come from 1088 patients, and patient IDs are not
+    released, so a patient can appear in both train and test.
+  - MRNet has no ROI masks, so it does not fit the ROI focus of D6. It is mainly useful
+    as a large, well-known MR check.
+

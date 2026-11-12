@@ -88,3 +88,16 @@ datasets" matches the 8 test rows; RSNA Spine and MRNet were used only for devel
   this shortcut; it is not implemented yet.
 - Folder names carry a curation index (`CHUM-029-86`); the label key is the DICOM
   PatientID (`CHUM-029`).
+
+### `mrnet_<target>_<plane>` (paper: development dataset, details not given)
+- Data: public MRNet release (1250 of the paper's 1370 exams; the test set is withheld).
+  The `.npy` series have no geometry. We assume 0.625 mm in-plane spacing and 4 mm slice
+  spacing (ASSUMPTION, estimated from anatomy) and reorient to (S-I, A-P, L-R).
+- Deviations: there are no ROI masks, so the crop is centred on the series and holds the
+  whole series. The z-score uses the whole series, whose intensities were already
+  standardised to 0-255 by the MRNet authors. Single centre, so splits stratify on the label.
+- The paper's target is only "pathology". `abnormal` is the closest match; `acl` and
+  `meniscus` are also provided.
+- Redivis label CSVs have no header. Read naively, the first exam (`_0000,_1`) becomes the
+  column names, and that exam is dropped.
+
