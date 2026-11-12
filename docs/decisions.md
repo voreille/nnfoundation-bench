@@ -170,3 +170,53 @@ instead of editing the old one. Status is one of: **active**, **superseded by Dn
   `splits.json`. If one modality excludes a case (for example a missing series), the
   splits differ and fusion must use the intersection with fresh splits.
 
+
+## D15. LLD-MMRI: one task per MR phase, MedSAM2 lesion mask as ROI, benign vs malignant (active, 2026-11-12)
+- **Fact:** the MedSAM2 release of LLD-MMRI 2023 (`wanglab/LLD-MMRI-MedSAM2`, revision
+  `b7e8da56`) has 498 patients with one lesion each and eight series per patient (C-pre,
+  C+A, C+V, C+Delay, T2WI, DWI, InPhase, OutPhase). Each series has its own grid (e.g. T2WI
+  0.74 x 0.74 x 8 mm, arterial 0.74 x 0.74 x 2.6 mm) and its own 3D lesion mask on that grid.
+  Intensities are uint8 0-255, rescaled by the MedSAM2 authors. 7 lesion classes; the
+  annotation JSON groups them into benign (232) and malignant (266).
+- **Choice:**
+  - Eight tasks `lld_mmri_malignant_<phase>` (pre, arterial, venous, delay, t2, dwi,
+    inphase, outphase). Each is single-channel, so per-modality late fusion (D14) applies.
+  - ROI = the dataset's lesion mask for that series (`require_roi=True`, D6). Pad value 0.
+  - Target: malignant (HCC, ICC, metastasis) vs benign (ASSUMPTION; the paper gives no
+    target, and the challenge task is 7-class).
+- **Why:** it ships 3D ROI masks, and it is one of the paper's test datasets.
+- **Rejected:** the 7-class challenge target. Our pipeline and the paper report binary AUROC.
+  A one-vs-rest task (e.g. HCC) can be added with another label function.
+- **Note:** the case ID suffix (`MR177097_0`) is the lesion category (checked on 498/498),
+  so case IDs carry the label. Nothing feeds them to a model, but never use them as features.
+- **Open:** whether the 0-255 rescaling (per series, by MedSAM2) hurts compared with the
+  original challenge intensities. Patients come from one hospital as far as we know, so
+  there is no `group` column.
+
+## D16. STOIC 2021: lungs from TotalSegmentator, targets severe and COVID (active, 2026-11-12)
+- **Choice:** tasks `stoic_severe` (death or intubation at one month, the challenge's
+  primary target) and `stoic_covid` (RT-PCR), from `metadata/reference.csv`
+  (`probSevere`, `probCOVID`, 0/1). The crop is centred on the union of the five
+  TotalSegmentator lung lobes (`require_roi=False`, image-centre fallback, as for KiTS).
+  `CaseInputs.roi_label` now accepts a tuple of labels for such unions.
+  `roi.segment_rois` converts non-NIfTI input (STOIC's .mha) to a temporary NIfTI.
+- **Why:** paper test dataset; it has no ROI masks, so we follow the paper's
+  TotalSegmentator approach. The lungs are wider than 192 mm (about 240 mm on the
+  smoke-test case), so the crop covers their centre only.
+- **Open:** the centre is not released, so splits stratify on the label only. Which
+  target the paper used is not stated (ASSUMPTION: severe first).
+
+## D17. RSNA Spine: read DICOM from the Kaggle zip, cervical spine from TotalSegmentator (active, 2026-11-12)
+- **Choice:** task `rsna_spine_fracture`, label `patient_overall` from `train.csv`
+  (ASSUMPTION; the paper lists the dataset for development only). The ~190 GB archive is
+  not unpacked. Each study's `train_images/<uid>/*.dcm` is read from the zip into a
+  temporary folder, read as one series with SimpleITK/GDCM (largest series if there are
+  several), and cached as int16 NIfTI in HU under `data/interim/rsna_spine/nifti/`.
+  The member list is cached in `zip_index.json`. ROI = union of TotalSegmentator
+  vertebrae C1-C7, with the image-centre fallback.
+- **Why:** unpacking would double ~190 GB on the NAS. The NIfTI cache is needed anyway
+  because TotalSegmentator reads NIfTI. okapy is kept for PET/CT with SEG; a plain CT series
+  needs only SimpleITK.
+- **Rejected:** the 87 ground-truth `segmentations/`. They cover too few studies.
+- **Open:** not tested on the real archive yet (the download was still running). Check
+  slice order and HU on a few studies before the full prepare.

@@ -11,12 +11,13 @@ class CaseInputs:
 
     ``image`` is a NIfTI in physical units (CT: HU, PET: SUVbw). ``roi_mask`` may be on a
     different grid (e.g. a CT-defined GTV for a PET image); everything is resampled in
-    physical space. ``roi_mask`` is None when the case has no ROI.
+    physical space. ``roi_mask`` is None when the case has no ROI. ``roi_label`` may be a
+    tuple: the ROI is then the union of those labels (e.g. the five lung lobes).
     """
 
     image: Path
     roi_mask: Path | None
-    roi_label: int = 1
+    roi_label: int | tuple[int, ...] = 1
 
 
 @dataclass(frozen=True)

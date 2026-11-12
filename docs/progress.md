@@ -19,6 +19,9 @@ as input channels, ROI handling, and how to pool features within a ROI.
 | `kits_liver` | 2/489 raw images downloaded | prepare, train and predict smoke-tested | none yet |
 | `hecktor_hpv_pet_gtvp` | 102 patients on the NAS, labels found | okapy conversion and crop smoke-tested on 3 patients | centre-only reference: AUROC 0.839 ± 0.011 |
 | `mrnet_*` (9 tasks) | 1250 public exams on the NAS; all file sizes and 40 md5s checked | npy-to-NIfTI conversion and crop smoke-tested on 2 exams per plane | none yet |
+| `lld_mmri_malignant_*` (8 phases) | 498 patients x 8 series on the NAS, all files present | crop around the dataset lesion mask smoke-tested on 2 cases x 3 phases | none yet |
+| `stoic_severe`, `stoic_covid` | download running (216/2000 scans, `reference.csv` not there yet) | TotalSegmentator lungs and crop smoke-tested on 1 case | none yet |
+| `rsna_spine_fracture` | Kaggle zip downloading (about 64%) | zip reader and DICOM conversion unit-tested; not run on real data | none yet |
 
 Next steps:
 1. Run `uv run nnfb-data prepare hecktor_hpv_pet_gtvp` on the host, then check
@@ -30,7 +33,11 @@ Next steps:
 4. Input-size designs S2-S7: add `--fov` / `--mode` to `nnfb-features extract`, then run
    the FOV sweep.
 5. KiTS Liver full run (background, paper reproduction).
-6. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
+6. LLD-MMRI: `uv run nnfb-data prepare lld_mmri_malignant_<phase>` for the 8 phases, then
+   frozen probes per phase and late fusion (D14, D15). It has lesion masks, so it fits the ROI focus.
+7. STOIC and RSNA Spine: when the downloads finish, run `nnfb-data download <task>` (it checks
+   the copy is complete), smoke-test a few RSNA studies, then `prepare` on the host.
+8. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
    "pathology"). Each task needs about 12 GB in `data/processed`. See D12.
 
 ## Design benchmark
@@ -150,4 +157,8 @@ None yet.
   repeated / n stem weights only encodes the channel average, so M1 is fine-tuning only.
 - Decided to always extract embeddings per modality and fuse late (D14). Early fusion (M1)
   is dropped from the plan.
-
+- Added LLD-MMRI 2023 (8 tasks, one per MR series, ROI = the dataset's MedSAM2 lesion mask,
+  target malignant vs benign, D15), STOIC 2021 (`severe`, `covid`, TotalSegmentator lungs,
+  D16) and RSNA Spine (`fracture`, DICOM read from the Kaggle zip, TotalSegmentator C1-C7,
+  D17). ROIs can now be a union of labels. LLD-MMRI case IDs end with the lesion category,
+  so they carry the label. STOIC and RSNA were still downloading.

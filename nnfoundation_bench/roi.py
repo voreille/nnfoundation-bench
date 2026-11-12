@@ -1,6 +1,7 @@
 """ROI masks from TotalSegmentator, used only to position the classification crop."""
 
 import os
+import tempfile
 from pathlib import Path
 
 from loguru import logger
@@ -25,6 +26,8 @@ def segment_rois(
     """Write a multi-label mask of ``rois`` for ``image``.
 
     ``fast`` uses the 3 mm model: coarse, but more than enough to centre a 192 mm crop.
+    TotalSegmentator reads NIfTI only, so other formats (e.g. STOIC's .mha) go through a
+    temporary NIfTI next to ``output``.
     """
     os.environ.setdefault("TOTALSEG_HOME_DIR", str(TOTALSEG_HOME_DIR))
     from totalsegmentator.python_api import totalsegmentator
@@ -32,13 +35,20 @@ def segment_rois(
     output.parent.mkdir(parents=True, exist_ok=True)
     tmp = output.with_name(f".partial.{output.name}")
     logger.debug(f"TotalSegmentator {rois} on {image.name}")
-    totalsegmentator(
-        image,
-        tmp,
-        ml=True,
-        fast=fast,
-        roi_subset=None if fast else rois,
-        device=device,
-        quiet=True,
-    )
+    with tempfile.TemporaryDirectory(dir=output.parent, prefix=".tmp.") as tmp_dir:
+        if not image.name.endswith((".nii", ".nii.gz")):
+            import SimpleITK as sitk
+
+            nifti = Path(tmp_dir) / "image.nii.gz"
+            sitk.WriteImage(sitk.ReadImage(image), nifti, True)
+            image = nifti
+        totalsegmentator(
+            image,
+            tmp,
+            ml=True,
+            fast=fast,
+            roi_subset=None if fast else rois,
+            device=device,
+            quiet=True,
+        )
     tmp.rename(output)

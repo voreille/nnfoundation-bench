@@ -45,6 +45,9 @@ images are about 100 GB.
 | `kits_liver` | KiTS23 | 489   | liver (TotalSegmentator) | Charlson liver-disease comorbidity (mild or moderate/severe) | pipeline smoke-tested; label definition is our assumption |
 | `hecktor_hpv_pet_gtvp` | HECKTOR (curated EUVIP 2024 HPV subset), PET SUVbw | 102 (52 +) | GTVp (dataset SEG) | HPV positive | ready for prepare; **centre alone gives AUROC 0.84** |
 | `mrnet_<abnormal\|acl\|meniscus>_<sagittal\|coronal\|axial>` | MRNet public release (knee MR), one series per task | 1250 (abnormal 1008, ACL 262, meniscus 449) | field of view (no masks) | per target | code + smoke test; spacing assumed (no geometry in the data) |
+| `lld_mmri_malignant_<pre\|arterial\|venous\|delay\|t2\|dwi\|inphase\|outphase>` | LLD-MMRI 2023 (MedSAM2 release), liver MR, one series per task | 498 (266 +) | liver lesion (dataset mask, per series) | malignant vs benign (our assumption) | code + smoke test on 2 cases x 3 phases |
+| `stoic_<severe\|covid>` | STOIC 2021 public training set, chest CT | 2000 | lungs (TotalSegmentator) | `probSevere` / `probCOVID` | code + smoke test on 1 case; download unfinished |
+| `rsna_spine_fracture` | RSNA 2022 cervical spine fracture (Kaggle zip), CT | 2019 | C1-C7 (TotalSegmentator) | `patient_overall` | code + unit tests only; download unfinished |
 
 Progress and results: [docs/progress.md](docs/progress.md). Design decisions:
 [docs/decisions.md](docs/decisions.md). See [references/nnfoundation_protocol.md](references/nnfoundation_protocol.md) for

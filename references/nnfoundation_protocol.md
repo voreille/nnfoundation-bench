@@ -101,3 +101,21 @@ datasets" matches the 8 test rows; RSNA Spine and MRNet were used only for devel
 - Redivis label CSVs have no header. Read naively, the first exam (`_0000,_1`) becomes the
   column names, and that exam is dropped.
 
+
+### `lld_mmri_malignant_<phase>` (paper: test dataset, target not given)
+- Data: MedSAM2 release of LLD-MMRI 2023 (HF `wanglab/LLD-MMRI-MedSAM2` @ `b7e8da56`):
+  498 patients x 8 series, 3D lesion masks per series. One task per series (D15).
+- Deviations: the crop is centred on the lesion mask, not on a TotalSegmentator organ.
+  Intensities are the MedSAM2 uint8 0-255 rescaling, not the original values.
+- Label (ASSUMPTION): malignant (HCC, ICC, metastasis; 266) vs benign (232), from the
+  dataset's own grouping. The challenge itself is 7-class.
+
+### `stoic_<severe|covid>` (paper: test dataset, target not given)
+- Data: STOIC 2021 public training set, 2000 CT (.mha, HU), `metadata/reference.csv`.
+- Crop centred on the lungs (TotalSegmentator lobes, union); the lungs exceed 192 mm.
+- Label (ASSUMPTION): `probSevere` (challenge primary) and `probCOVID`, both 0/1.
+
+### `rsna_spine_fracture` (paper: development dataset)
+- Data: RSNA 2022 Cervical Spine Fracture Detection, 2019 training CT studies, read from
+  the Kaggle zip and cached as NIfTI (D17).
+- Crop centred on C1-C7 (TotalSegmentator, union). Label (ASSUMPTION): `patient_overall`.

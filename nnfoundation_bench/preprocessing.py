@@ -42,6 +42,16 @@ def roi_center(mask: sitk.Image, label: int) -> Point | None:
     return mask.TransformContinuousIndexToPhysicalPoint((start + (size - 1) / 2).tolist())
 
 
+def binary_roi(mask: sitk.Image, labels: int | Sequence[int]) -> sitk.Image:
+    """uint8 mask of the voxels whose value is in ``labels`` (one label or a union)."""
+    labels = [labels] if isinstance(labels, int) else list(labels)
+    roi = sitk.GetImageFromArray(
+        np.isin(sitk.GetArrayViewFromImage(mask), labels).astype(np.uint8)
+    )
+    roi.CopyInformation(mask)
+    return roi
+
+
 def image_center(image: sitk.Image) -> Point:
     return image.TransformContinuousIndexToPhysicalPoint(
         ((np.array(image.GetSize()) - 1) / 2).tolist()
@@ -150,7 +160,7 @@ def _process_case(inputs: CaseInputs, pad_value: float, out_dir: Path, qc_dir: P
         mask = sitk.Image(image.GetSize(), sitk.sitkUInt8)
         mask.CopyInformation(image)
     else:
-        mask = sitk.Cast(sitk.ReadImage(inputs.roi_mask) == inputs.roi_label, sitk.sitkUInt8)
+        mask = binary_roi(sitk.ReadImage(inputs.roi_mask), inputs.roi_label)
     center = roi_center(mask, 1)
     if center is None:
         center = image_center(image)
