@@ -14,7 +14,7 @@ before changing the protocol.
   covers full dataset downloads, `prepare` over a whole dataset, training runs, full
   inference, and anything that takes more than a few minutes or uses lots of GPU, disk or
   network. Don't launch them. Give the exact commands (copy-pasteable, with
-  `make`/`uv run` and the GPU/fold arguments) and wait for the user to report back.
+  `uv run` / `scripts/run_benchmark.sh` and the GPU/fold arguments) and wait for the user to report back.
   Claude may still run quick checks: unit tests, lint, and smoke tests on a few cases or
   a couple of steps.
 - Python via **uv** only: `uv sync`, then `uv run ...`. Do not use pip or create venvs.
@@ -26,12 +26,15 @@ before changing the protocol.
 - `NNFB_DATA_DIR` moves the data root. `TOTALSEG_HOME_DIR` defaults to `models/totalsegmentator`.
 
 ## Commands
-- `make requirements | test | lint | format`
-- `make data TASK=kits_liver [DEVICE=gpu:0]` runs download + prepare.
-- `make train TASK=kits_liver MODEL=cnn|vit FOLD=0 GPUS=0`, then `make predict ...`, then `make summarize`.
+There is no Makefile. Everything is a `uv run` CLI; reruns are cheap because the Python
+code skips work that is already done.
+- Dev: `uv sync`, `uv run pytest`, `uv run ruff check`, `uv run ruff format`
 - `uv run nnfb-data list | download <task> | prepare <task>`
 - `uv run nnfb-train <task> --model cnn|vit --fold k [--gpus 0,1 --scratch --lr --epochs --tag]`
 - `uv run nnfb-predict predict <task> --model ... --fold k` and `uv run nnfb-predict summarize <task>`
+- `scripts/run_benchmark.sh <task>` (host only) runs download, prepare, every
+  model x fold x {pretrained, scratch} spread over `GPUS`, then the summary. It skips
+  runs that already have `metrics.json`. Settings come from env vars (see the script header).
 
 ## Layout (Cookiecutter Data Science)
 - `data/raw/<source>/`: immutable downloads, pinned to fixed revisions and checksummed where possible.
@@ -73,6 +76,6 @@ before changing the protocol.
   case. Outside-FOV CT is padded with -1024 HU before z-scoring.
 - Do not edit glovita. If its behaviour needs to change, patch it in `glovita_entry.py`
   and update the pin consciously.
-- Ruff, line length 99. Run `make lint test` before committing.
+- Ruff, line length 99. Run `uv run ruff format && uv run ruff check && uv run pytest` before committing.
 - Git: commit locally, never push. **No Claude/AI attribution** in commits or PRs
   (no `Co-Authored-By: Claude`, no "Generated with Claude Code").
