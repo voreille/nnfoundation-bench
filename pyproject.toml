@@ -14,6 +14,7 @@ dependencies = [
     "huggingface-hub>=0.24",
     "loguru",
     "numpy",
+    "okapy",
     "pandas",
     "requests",
     "scikit-learn",
@@ -33,6 +34,7 @@ dev = ["pytest", "ruff"]
 torch = [{ index = "pytorch-cu128" }]
 torchvision = [{ index = "pytorch-cu128" }]
 glovita = { git = "https://github.com/MIC-DKFZ/image_classification", rev = "025e5942f5b6471889e5b8d1e6355ab4a331e402" }
+okapy = { path = "../okapy", editable = true }
 
 [[tool.uv.index]]
 name = "pytorch-cu128"

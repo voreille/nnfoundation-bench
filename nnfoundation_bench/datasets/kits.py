@@ -14,8 +14,9 @@ import pandas as pd
 import requests
 from loguru import logger
 
-from nnfoundation_bench.config import RAW_DATA_DIR
-from nnfoundation_bench.datasets.base import ClassificationTask
+from nnfoundation_bench.config import CT_PAD_VALUE, INTERIM_DATA_DIR, RAW_DATA_DIR
+from nnfoundation_bench.datasets.base import CaseInputs, ClassificationTask
+from nnfoundation_bench.roi import segment_rois, totalseg_class_ids
 
 SOURCE = "kits23"
 RAW_DIR = RAW_DATA_DIR / SOURCE
@@ -28,6 +29,7 @@ GH_COMMIT = "c1088353084c17b8882a11db71429e7c022b7785"
 METADATA_URL = f"https://raw.githubusercontent.com/neheller/kits23/{GH_COMMIT}/dataset/kits23.json"
 METADATA_SHA256 = "c747c720a1c8ea6476050b73eb4cc298f4030e1be0d43df1540601ffb1e9924b"
 METADATA_PATH = RAW_DIR / "kits23.json"
+TOTALSEG_DIR = INTERIM_DATA_DIR / SOURCE / "totalseg"
 
 
 def image_path(case_id: str) -> Path:
@@ -104,13 +106,25 @@ def liver_disease_labels(metadata: tuple[dict, ...] | list[dict]) -> pd.DataFram
     return pd.DataFrame(rows, columns=["case_id", "label"])
 
 
+def totalseg_inputs(case_id: str, device: str, roi: str) -> CaseInputs:
+    """CT plus a cached TotalSegmentator mask of ``roi`` (KiTS has no organ masks)."""
+    mask = TOTALSEG_DIR / f"{case_id}.nii.gz"
+    if not mask.exists():
+        segment_rois(image_path(case_id), mask, [roi], device)
+    return CaseInputs(image_path(case_id), mask, totalseg_class_ids([roi])[roi])
+
+
 KITS_LIVER = ClassificationTask(
     name="kits_liver",
     source=SOURCE,
     description="KiTS23 CT, crop around the liver, target: liver-disease comorbidity",
-    roi="liver",
     target="liver_disease",
+    roi="liver (TotalSegmentator)",
+    modality="CT",
     download=download,
     load_labels=lambda: liver_disease_labels(load_metadata()),
-    image_path=image_path,
+    case_inputs=lambda case_id, device: totalseg_inputs(case_id, device, "liver"),
+    pad_value=CT_PAD_VALUE,
+    # Paper protocol: always crop, fall back to the image centre if the liver is missed.
+    require_roi=False,
 )

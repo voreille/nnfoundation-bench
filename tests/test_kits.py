@@ -24,4 +24,4 @@ def test_liver_label_is_union_of_liver_comorbidities():
 
 def test_task_registered():
     task = get_task("kits_liver")
-    assert task.roi == "liver" and task.source == "kits23"
+    assert task.source == "kits23" and not task.require_roi

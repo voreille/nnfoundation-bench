@@ -38,9 +38,10 @@ images are about 100 GB.
 
 ## Tasks
 
-| Task         | Source | Cases | ROI   | Label                                            | Status |
-|--------------|--------|-------|-------|--------------------------------------------------|--------|
-| `kits_liver` | KiTS23 | 489   | liver | Charlson liver-disease comorbidity (mild or moderate/severe) | pipeline smoke-tested; label definition is our assumption |
+| Task | Source | Cases | ROI | Label | Status |
+|------|--------|-------|-----|-------|--------|
+| `kits_liver` | KiTS23 | 489   | liver (TotalSegmentator) | Charlson liver-disease comorbidity (mild or moderate/severe) | pipeline smoke-tested; label definition is our assumption |
+| `hecktor_hpv_pet_gtvp` | HECKTOR (curated EUVIP 2024 HPV subset), PET SUVbw | ~100 | GTVp (dataset SEG) | HPV positive | conversion and crop smoke-tested; waiting for the label file |
 
 See [references/nnfoundation_protocol.md](references/nnfoundation_protocol.md) for
 the paper's classification protocol and the full list of its datasets.

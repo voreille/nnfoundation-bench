@@ -72,3 +72,14 @@ datasets" matches the 8 test rows; RSNA Spine and MRNet were used only for devel
   authors derived labels from another source (reports? lesion annotations?). Ask the
   authors or check the nnssl downstream repos.
 - Do the authors use one split or several seeds? The paper says only "40/10/50".
+
+## Our own tasks (not in the paper)
+### `hecktor_hpv_pet_gtvp`
+- Data: curated HECKTOR subset for HPV status (EUVIP 2024), DICOM CT + PET + SEG
+  (segment 1 GTVp, 2 GTVn, defined on CT). Converted with okapy: PET to SUVbw.
+- Baseline: PET only, 192^3 at 1 mm centred on the GTVp bounding box, z-scored like
+  pretraining. Cases without GTVp are excluded. Combining CT/PET/GTVn is future work.
+- Labels: HPV status, unknown excluded. Label file name and columns are ASSUMED to follow
+  HECKTOR 2022 conventions (`PatientID`, `HPV status (0=-, 1=+)`) until confirmed.
+- Folder names carry a curation index (`CHUM-029-86`); the label key is the DICOM
+  PatientID (`CHUM-029`).

@@ -2,7 +2,9 @@
 
 Benchmark of the nnFoundation 3D radiology foundation models (arXiv:2609.26924) on
 downstream tasks. The current scope is **classification**: reproduce the paper's
-protocol, one dataset at a time. KiTS Liver comes first.
+protocol, one dataset at a time. Tasks so far: KiTS Liver (paper reproduction) and
+HECKTOR HPV (PET, GTVp; our own baseline, not in the paper).
+**Focus on datasets that ship their own ROI masks**: the user's pipeline relies on ROIs.
 **Purpose:** we want to use the *pretrained* nnFoundation models in our own pipeline. The
 benchmark is a testbed for design choices around them, e.g. how to pool/average
 features within a ROI. Pretrained runs are the default; from-scratch baselines are
@@ -27,6 +29,8 @@ before changing the protocol.
 - **/dev/shm is 64 MB in claude-box**, too small for DataLoader workers on 192^3 volumes.
   Use `--num-workers 0` for smoke tests in here. Real training runs on the host.
 - Memory at batch size 1, 192^3, bf16: ViT peaks at ~48 GB and fits on one H100.
+- okapy (the user's PET/CT DICOM conversion library, SUV computation) is an editable path
+  dependency on `../okapy`. Fix okapy bugs in okapy, not with workarounds here.
 - `NNFB_DATA_DIR` moves the data root. `TOTALSEG_HOME_DIR` defaults to `models/totalsegmentator`.
 
 ## Commands
@@ -43,10 +47,13 @@ code skips work that is already done.
 
 ## Layout (Cookiecutter Data Science)
 - `data/raw/<source>/`: immutable downloads, pinned to fixed revisions and checksummed where possible.
-- `data/interim/<source>/totalseg/`: cached ROI masks, shared by all tasks of one source.
-- `data/interim/<task>/{images,masks}/`: QC crops as NIfTI (int16 HU), viewable in ITK-SNAP.
+- `data/raw/hecktor_euvip2024_hpv/`: curated HECKTOR DICOM (registration-gated, placed by hand).
+- `data/interim/<source>/`: per-source caches shared by its tasks: `totalseg/` (KiTS ROI
+  masks), `converted/<case>/` (okapy NIfTI: CT HU, PET SUVbw, one mask per SEG segment + manifest.json).
+- `data/interim/<task>/{images,masks}/`: QC crops as NIfTI (float32 in HU/SUV), viewable in ITK-SNAP.
 - `data/processed/<task>/`: glovita `generic_3d_dataset` format: `images/*.b2nd` (float32
-  (1,z,y,x), z-scored), `labels.json`, `splits.json` (list = folds), `dataset.json`, `labels.csv`.
+  (1,z,y,x), z-scored), `labels.json`, `splits.json` (list = folds), `dataset.json`, `labels.csv`,
+  plus `masks/*.b2nd` (uint8 ROI on the same grid, for ROI-pooling experiments; glovita ignores it).
 - `models/pretrained/`: nnFoundation checkpoints (HF, pinned revisions; downloaded on first use).
 - `models/finetuned/<task>/generic_3d_dataset/<run>/<fold>/`: glovita run dirs (`best.pt`, `last.pt`).
   MLflow store: `models/finetuned/<task>/mlflow.db`.
@@ -64,8 +71,11 @@ code skips work that is already done.
 - Notebooks: `notebooks/<n>-<initials>-<topic>.ipynb`. Exploration only; reusable code goes in the package.
 
 ## Adding a classification dataset
-1. Create `nnfoundation_bench/datasets/<source>.py` with `download()`, `image_path(case_id)`,
-   a label function returning `case_id,label`, and a `ClassificationTask` per target.
+1. Create `nnfoundation_bench/datasets/<source>.py` with `download()`, a label function returning
+   `case_id,label`, a `case_inputs(case_id, device) -> CaseInputs(image, roi_mask, roi_label)`
+   (cache any conversion/segmentation under `data/interim/<source>/`), and a
+   `ClassificationTask` per (target, modality, ROI) combination. Prefer the dataset's own
+   ROI masks (`require_roi=True`: cases without ROI are excluded and listed in dataset.json).
 2. Pin download revisions (commit SHA / checksum). Make downloads resumable and idempotent.
 3. Register the task in `datasets/__init__.py::TASKS`.
 4. Document the label definition, and mark it ASSUMPTION if the paper does not specify it.

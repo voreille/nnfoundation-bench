@@ -26,19 +26,19 @@ def download(task: str) -> None:
 @app.command()
 def prepare(
     task: str,
-    device: str = typer.Option("gpu", help="TotalSegmentator device: gpu, gpu:N or cpu"),
-    fast_roi: bool = typer.Option(True, help="Use TotalSegmentator's 3 mm fast model"),
+    device: str = typer.Option(
+        "gpu", help="Device for ROI models such as TotalSegmentator: gpu, gpu:N or cpu"
+    ),
     seed: int = typer.Option(DEFAULT_SEED, help="Seed of the first stratified split"),
     n_splits: int = typer.Option(N_SPLITS, help="Number of repeated 40/10/50 splits (folds)"),
     overwrite: bool = typer.Option(False, help="Recompute existing crops"),
 ) -> None:
-    """Build data/processed/TASK for glovita (ROI crop, 1 mm, z-score, splits)."""
+    """Build data/processed/TASK for glovita (ROI crop, 1 mm, z-score, masks, splits)."""
     from nnfoundation_bench.preprocessing import prepare_task
 
     prepare_task(
         get_task(task),
         device=device,
-        fast_roi=fast_roi,
         seed=seed,
         n_splits=n_splits,
         overwrite=overwrite,
