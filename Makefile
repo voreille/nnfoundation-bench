@@ -5,6 +5,9 @@
 PROJECT_NAME = nnfoundation-bench
 TASK ?= kits_liver
 DEVICE ?= gpu
+MODEL ?= cnn
+FOLD ?= 0
+GPUS ?= 0
 
 #################################################################################
 # COMMANDS                                                                      #
@@ -56,6 +59,21 @@ download:
 .PHONY: data
 data: download
 	uv run nnfb-data prepare $(TASK) --device $(DEVICE)
+
+## Fine-tune MODEL (cnn|vit) on TASK fold FOLD using GPUS (e.g. GPUS=0,1)
+.PHONY: train
+train:
+	uv run nnfb-train $(TASK) --model $(MODEL) --fold $(FOLD) --gpus $(GPUS)
+
+## Evaluate the best checkpoint of MODEL on the test split of FOLD (AUROC)
+.PHONY: predict
+predict:
+	CUDA_VISIBLE_DEVICES=$(GPUS) uv run nnfb-predict predict $(TASK) --model $(MODEL) --fold $(FOLD)
+
+## Mean/std AUROC over folds for all runs of TASK
+.PHONY: summarize
+summarize:
+	uv run nnfb-predict summarize $(TASK)
 
 #################################################################################
 # Self Documenting Commands                                                     #

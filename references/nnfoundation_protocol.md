@@ -5,8 +5,14 @@ Notes from the v1 HTML paper, read 2026-11-12.
 ## Models
 - Two models: nnFoundation CNN and nnFoundationViT (transformer).
 - Pretrained on 2.1M CT/MR/PET volumes from 125 datasets (Human Radiome Project).
-- Code: https://github.com/MIC-DKFZ/nnssl. Released "integrated into nnU-Net and
-  nnDetection". The paper gives no direct link to the weights.
+- Pretraining code: https://github.com/MIC-DKFZ/nnssl.
+- Weights: https://huggingface.co/MIC-DKFZ/nnFoundationCNN (ResEnc-L, 102M) and
+  https://huggingface.co/MIC-DKFZ/nnFoundationViT (PrimusX, 674M).
+- Classification fine-tuning code: https://github.com/MIC-DKFZ/image_classification
+  (package `glovita`, docs/nnfoundation.md).
+- The checkpoints' `adaptation_plan.json` says: input is single-channel, z-score normalised
+  (`ZScoreNormalization`, no mask), not resampled by the model (pretraining data was at
+  ~1 mm), read with SimpleITK with no transpose, and the recommended patch size is 192^3.
 
 ## Classification fine-tuning
 - Inputs resampled to **1 mm isotropic**, **192x192x192 crop around the target region**.
@@ -16,8 +22,8 @@ Notes from the v1 HTML paper, read 2026-11-12.
 - 100 epochs x 50 steps, effective batch size 32 (gradient accumulation).
   Linear warm-up over the first 10% of epochs, then cosine decay.
   The reduced-compute setting uses 20 epochs.
-- Peak LR tuned per model on an internal CT-RATE validation split
-  (1e-4 for CTFM / nnFoundationViT, up to 1e-1 for CURIA).
+- Peak LR tuned per model on an internal CT-RATE validation split (Table 1):
+  **nnFoundationCNN 3e-4, nnFoundationViT 1e-4** (others up to 1e-1 for CURIA).
 - Split: **40/10/50 train/val/test**. CT-RATE uses its official test split.
 - Metric: **AUROC**. Results are summarised by mean rank across datasets.
 
@@ -37,6 +43,26 @@ Notes from the v1 HTML paper, read 2026-11-12.
 
 Table 9 lists the ODELIA anatomy as "chest". The text's "8 classification
 datasets" matches the 8 test rows; RSNA Spine and MRNet were used only for development.
+
+## Our implementation and deviations
+- Trainer: glovita at a pinned commit. Settings follow its nnFoundation example:
+  AdamW, weight decay 0.01, `init_std` 0.01 head, best checkpoint by val AUROC, batch size 1
+  with gradient accumulation up to 32. Warm-up is 10% of epochs.
+- **Fixed-length epochs:** glovita's `train_steps_per_epoch` only truncates epochs. With
+  ~200 training cases, 100 "epochs" would be ~600 optimizer steps instead of the paper's
+  5000. `modeling/glovita_entry.py` repeats the training cases so each epoch holds
+  50 x 32 samples.
+- Precision: bf16. The paper says "mixed precision" and glovita's example uses fp16.
+- Normalisation: z-score with the mean/std of the whole original scan, as nnU-Net/nnssl
+  preprocessing does before patch sampling. The paper does not say whether the stats come
+  from the scan or the crop.
+- Orientation: crops are resampled into an identity-direction grid. nnU-Net does not
+  reorient, but KiTS23 stores a permuted direction matrix, and most pretraining CTs are
+  near-identity.
+- Splits: 5 repeated stratified 40/10/50 splits (seeds 12345+i), used as glovita folds.
+  The paper does not say how many it used.
+- Metric: AUROC computed with sklearn from the softmax P(class 1) in glovita's
+  `predictions.pt`.
 
 ## Open questions
 - **KiTS Liver / Pancreas labels are not defined in the paper.** For liver we

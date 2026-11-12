@@ -6,6 +6,8 @@
 !/models/.gitkeep
 /reports/figures/*
 !/reports/figures/.gitkeep
+# Keep metrics.json / predictions.csv / summary.csv, not the raw torch dumps
+/reports/results/**/predictions.pt
 
 # Python
 __pycache__/

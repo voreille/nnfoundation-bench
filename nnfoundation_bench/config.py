@@ -17,8 +17,11 @@ PROCESSED_DATA_DIR = DATA_DIR / "processed"
 EXTERNAL_DATA_DIR = DATA_DIR / "external"
 
 MODELS_DIR = PROJ_ROOT / "models"
+PRETRAINED_DIR = MODELS_DIR / "pretrained"
+FINETUNED_DIR = MODELS_DIR / "finetuned"
 REPORTS_DIR = PROJ_ROOT / "reports"
 FIGURES_DIR = REPORTS_DIR / "figures"
+RESULTS_DIR = REPORTS_DIR / "results"
 
 # Third-party model weights (TotalSegmentator) live next to our own models.
 TOTALSEG_HOME_DIR = Path(os.environ.get("TOTALSEG_HOME_DIR", MODELS_DIR / "totalsegmentator"))
@@ -30,6 +33,17 @@ TARGET_SPACING_MM = (1.0, 1.0, 1.0)
 CROP_SIZE = (192, 192, 192)
 SPLIT_FRACTIONS = {"train": 0.4, "val": 0.1, "test": 0.5}
 DEFAULT_SEED = 12345
+# The paper does not say how many splits it used; we repeat the 40/10/50 split
+# with different seeds (glovita folds) to get variance estimates on small tasks.
+N_SPLITS = 5
+
+# Fine-tuning protocol (paper Sec. 4 + glovita nnFoundation example):
+# 100 epochs x 50 optimizer steps, effective batch 32, 10% linear warm-up then cosine.
+EPOCHS = 100
+STEPS_PER_EPOCH = 50
+EFFECTIVE_BATCH_SIZE = 32
+WARMUP_FRACTION = 0.1
+WEIGHT_DECAY = 0.01
 
 # Value used outside the field of view after cropping/resampling CT (air, in HU).
 CT_PAD_VALUE = -1024

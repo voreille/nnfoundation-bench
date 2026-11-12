@@ -9,6 +9,8 @@ description = "Benchmarking nnFoundation (arXiv:2609.26924) on downstream classi
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [
+    "blosc2>=4.15.0",
+    "glovita[mlflow]",
     "huggingface-hub>=0.24",
     "loguru",
     "numpy",
@@ -30,6 +32,7 @@ dev = ["pytest", "ruff"]
 [tool.uv.sources]
 torch = [{ index = "pytorch-cu128" }]
 torchvision = [{ index = "pytorch-cu128" }]
+glovita = { git = "https://github.com/MIC-DKFZ/image_classification", rev = "025e5942f5b6471889e5b8d1e6355ab4a331e402" }
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
@@ -38,6 +41,8 @@ explicit = true
 
 [project.scripts]
 nnfb-data = "nnfoundation_bench.dataset:app"
+nnfb-train = "nnfoundation_bench.modeling.train:app"
+nnfb-predict = "nnfoundation_bench.modeling.predict:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["nnfoundation_bench"]
@@ -48,6 +53,9 @@ src = ["nnfoundation_bench", "tests"]
 
 [tool.ruff.lint]
 extend-select = ["I", "UP", "B"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["nnfoundation_bench"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,7 +1,17 @@
+import json
+
 import numpy as np
 import pandas as pd
 import SimpleITK as sitk
-from nnfoundation_bench.preprocessing import crop_around, roi_center, stratified_split
+
+from nnfoundation_bench.preprocessing import (
+    crop_around,
+    repeated_splits,
+    roi_center,
+    stratified_split,
+    write_b2nd,
+    zscore,
+)
 
 
 def _image(shape_zyx, spacing_xyz, fill=0.0):
@@ -59,3 +69,49 @@ def test_stratified_split_fractions_and_disjoint():
     positives = set(labels.loc[labels["label"] == 1, "case_id"])
     assert len(positives & set(splits["test"])) == 10
     assert splits == stratified_split(labels, {"train": 0.4, "val": 0.1, "test": 0.5}, seed=0)
+
+
+def test_crop_reorients_permuted_direction_to_identity():
+    # KiTS23 stores volumes with a permuted direction matrix.
+    image = _image((40, 50, 60), (1.0, 1.0, 1.0))
+    image.SetDirection((0, 0, 1, 0, 1, 0, -1, 0, 0))
+    array = sitk.GetArrayFromImage(image)
+    array[20, 25, 30] = 1000.0
+    marked = sitk.GetImageFromArray(array)
+    marked.CopyInformation(image)
+    center = marked.TransformIndexToPhysicalPoint((30, 25, 20))
+
+    crop = crop_around(marked, center, size=(16, 16, 16))
+    assert crop.GetDirection() == (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+    hot = np.unravel_index(np.argmax(sitk.GetArrayFromImage(crop)), (16, 16, 16))
+    assert all(abs(h - 7.5) <= 1 for h in hot)
+
+
+def test_zscore():
+    out = zscore(np.array([0, 10, 20]), mean=10.0, std=5.0)
+    assert out.dtype == np.float32 and np.allclose(out, [-2, 0, 2])
+
+
+def test_repeated_splits_differ_by_seed():
+    labels = pd.DataFrame(
+        {"case_id": [f"c{i}" for i in range(50)], "label": [i % 5 == 0 for i in range(50)]}
+    )
+    labels["label"] = labels["label"].astype(int)
+    splits = repeated_splits(labels, n_splits=3, seed=0)
+    assert len(splits) == 3 and splits[0]["test"] != splits[1]["test"]
+
+
+def test_export_is_readable_by_glovita(tmp_path):
+    from glovita.datasets.generic_3d_dataset import Generic3DDataset
+
+    (tmp_path / "images").mkdir()
+    volume = np.random.default_rng(0).normal(size=(1, 8, 9, 10)).astype(np.float32)
+    write_b2nd(volume, tmp_path / "images" / "case_a.b2nd")
+    (tmp_path / "labels.json").write_text(json.dumps({"case_a": 1}))
+    (tmp_path / "splits.json").write_text(
+        json.dumps([{"train": ["case_a"], "val": [], "test": []}])
+    )
+
+    dataset = Generic3DDataset(tmp_path, "train", fold="0")
+    image, label = dataset[0]
+    assert label == 1 and np.allclose(image.numpy(), volume)

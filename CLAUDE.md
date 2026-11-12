@@ -3,28 +3,49 @@
 Benchmark of the nnFoundation 3D radiology foundation models (arXiv:2609.26924) on
 downstream tasks. The current scope is **classification**: reproduce the paper's
 protocol, one dataset at a time. KiTS Liver comes first.
+Fine-tuning uses the authors' trainer, **glovita**
+(github.com/MIC-DKFZ/image_classification, pinned in pyproject.toml). We prepare the
+data and launch and evaluate runs; we don't reimplement training.
 Paper notes and open questions: `references/nnfoundation_protocol.md`. Read it
 before changing the protocol.
 
 ## Environment
 - Python via **uv** only: `uv sync`, then `uv run ...`. Do not use pip or create venvs.
-- GPUs: 2x H100 NVL. TotalSegmentator (ROI masks) runs on the GPU (`--device gpu:1`, ...).
+- GPUs: 2x H100 NVL. torch/torchvision come from the cu128 index because the host
+  driver is CUDA 12.9 and PyPI wheels need CUDA 13. TotalSegmentator runs on the GPU (`--device gpu:1`).
+- **/dev/shm is 64 MB in claude-box**, too small for DataLoader workers on 192^3 volumes.
+  Use `--num-workers 0` in here (slow), or run real training with a bigger shm.
+- Memory at batch size 1, 192^3, bf16: ViT peaks at ~48 GB and fits on one H100.
 - `NNFB_DATA_DIR` moves the data root. `TOTALSEG_HOME_DIR` defaults to `models/totalsegmentator`.
 
 ## Commands
 - `make requirements | test | lint | format`
 - `make data TASK=kits_liver [DEVICE=gpu:0]` runs download + prepare.
-- `uv run nnfb-data list | download <task> | prepare <task> [--device ... --seed ... --overwrite]`
+- `make train TASK=kits_liver MODEL=cnn|vit FOLD=0 GPUS=0`, then `make predict ...`, then `make summarize`.
+- `uv run nnfb-data list | download <task> | prepare <task>`
+- `uv run nnfb-train <task> --model cnn|vit --fold k [--gpus 0,1 --scratch --lr --epochs --tag]`
+- `uv run nnfb-predict predict <task> --model ... --fold k` and `uv run nnfb-predict summarize <task>`
 
 ## Layout (Cookiecutter Data Science)
 - `data/raw/<source>/`: immutable downloads, pinned to fixed revisions and checksummed where possible.
 - `data/interim/<source>/totalseg/`: cached ROI masks, shared by all tasks of one source.
-- `data/processed/<task>/`: `images/`, `masks/`, `labels.csv`, `splits.json`, `dataset.json`.
+- `data/interim/<task>/{images,masks}/`: QC crops as NIfTI (int16 HU), viewable in ITK-SNAP.
+- `data/processed/<task>/`: glovita `generic_3d_dataset` format: `images/*.b2nd` (float32
+  (1,z,y,x), z-scored), `labels.json`, `splits.json` (list = folds), `dataset.json`, `labels.csv`.
+- `models/pretrained/`: nnFoundation checkpoints (HF, pinned revisions; downloaded on first use).
+- `models/finetuned/<task>/generic_3d_dataset/<run>/<fold>/`: glovita run dirs (`best.pt`, `last.pt`).
+  MLflow store: `models/finetuned/<task>/mlflow.db`.
+- `reports/results/<task>/<run>/fold<k>/`: `metrics.json` (AUROC), `predictions.csv`; plus `summary.csv`.
 - `nnfoundation_bench/`: the package. `config.py` holds paths and protocol constants
   (1 mm, 192^3, 40/10/50, seed). `datasets/` has one module per source plus the
   `TASKS` registry. `preprocessing.py` holds the shared crop and split code. `roi.py`
   wraps TotalSegmentator. `dataset.py` is the typer CLI.
-- Training and evaluation code goes in `nnfoundation_bench/modeling/` (`train.py`, `predict.py`, not written yet).
+- `weights.py`: pretrained checkpoints and paper LRs (CNN 3e-4, ViT 1e-4).
+- `modeling/train.py` builds the `accelerate launch` command for glovita.
+  `modeling/glovita_entry.py` wraps glovita's train main with two patches: fixed-length
+  epochs (50 x 32 samples) and keeping only best/last checkpoints.
+  `modeling/predict.py` runs `glovita.cli.infer` and computes AUROC (glovita's infer
+  reports only acc/F1). Run names come from `modeling/runs.py`: `<model>[_scratch]_lr<lr>[_tag]`.
 - Notebooks: `notebooks/<n>-<initials>-<topic>.ipynb`. Exploration only; reusable code goes in the package.
 
 ## Adding a classification dataset
@@ -39,8 +60,12 @@ before changing the protocol.
 ## Conventions
 - Keep preprocessing protocol-faithful. Record any deviation from the paper in
   `references/nnfoundation_protocol.md`.
-- Processed CT is stored as int16 HU and is not normalised. Normalisation belongs to the training pipeline.
-- Crops keep the source direction cosines. Outside-FOV CT is padded with -1024.
+- Preprocessing must match the nnFoundation `adaptation_plan.json`: nnU-Net z-score
+  (whole-scan mean/std, no mask), 1 mm, 192^3, arrays as SimpleITK (z,y,x).
+- Crops are reoriented to an identity (LPS) direction so axis order is the same for every
+  case. Outside-FOV CT is padded with -1024 HU before z-scoring.
+- Do not edit glovita. If its behaviour needs to change, patch it in `glovita_entry.py`
+  and update the pin consciously.
 - Ruff, line length 99. Run `make lint test` before committing.
 - Git: commit locally, never push. **No Claude/AI attribution** in commits or PRs
   (no `Co-Authored-By: Claude`, no "Generated with Claude Code").
