@@ -21,7 +21,7 @@ RAW_DIR = RAW_DATA_DIR / "HECKTOR_EUVIP2024_HPV"  # symlink to the NAS copy
 CONVERTED_DIR = INTERIM_DATA_DIR / SOURCE / "converted"
 
 # Curated, class-balanced subset of HECKTOR 2022 (102 patients, 52 positive).
-# ASSUMPTION: Outcome 1 = HPV positive (inferred from the file name).
+# Outcome: 1 = HPV positive, 0 = HPV negative.
 LABELS_PATH = RAW_DIR / "hecktor2022_HPV_outcomesBalanced_nospaces.csv"
 LABELS_ID_COLUMN = "PatientID"
 LABELS_HPV_COLUMN = "Outcome"

@@ -43,7 +43,8 @@ images are about 100 GB.
 | `kits_liver` | KiTS23 | 489   | liver (TotalSegmentator) | Charlson liver-disease comorbidity (mild or moderate/severe) | pipeline smoke-tested; label definition is our assumption |
 | `hecktor_hpv_pet_gtvp` | HECKTOR (curated EUVIP 2024 HPV subset), PET SUVbw | 102 (52 +) | GTVp (dataset SEG) | HPV positive | ready for prepare; **centre alone gives AUROC 0.84** |
 
-See [references/nnfoundation_protocol.md](references/nnfoundation_protocol.md) for
+Progress and results: [docs/progress.md](docs/progress.md). Design decisions:
+[docs/decisions.md](docs/decisions.md). See [references/nnfoundation_protocol.md](references/nnfoundation_protocol.md) for
 the paper's classification protocol and the full list of its datasets.
 
 ## Project Organization
@@ -51,6 +52,7 @@ the paper's classification protocol and the full list of its datasets.
 ```
 ├── CLAUDE.md          <- Notes for coding agents working on this repo
 ├── README.md
+├── docs               <- progress.md (status, results, log), decisions.md (design records)
 ├── data
 │   ├── external       <- Data from third-party sources
 │   ├── interim        <- Intermediate data (e.g. TotalSegmentator ROI masks)

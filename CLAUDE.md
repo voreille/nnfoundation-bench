@@ -12,8 +12,14 @@ optional context, not the goal.
 Fine-tuning uses the authors' trainer, **glovita**
 (github.com/MIC-DKFZ/image_classification, pinned in pyproject.toml). We prepare the
 data and launch and evaluate runs; we don't reimplement training.
+**Target: HECKTOR HPV at AUROC >= 0.99** (centre-only reference is 0.84).
 Paper notes and open questions: `references/nnfoundation_protocol.md`. Read it
 before changing the protocol.
+**Keep `docs/` up to date as part of the work, not afterwards:**
+- `docs/progress.md`: status table, next steps, results tables (mean ± std AUROC per run),
+  and a dated log. Update it whenever a task, run or result changes.
+- `docs/decisions.md`: numbered decision records (choice / why / rejected / open). Add a
+  new Dn for every design choice. Never rewrite an old entry; supersede it.
 
 ## Environment
 - **Long-running or heavy jobs are run by the user on the host, not by Claude.** This

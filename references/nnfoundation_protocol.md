@@ -80,7 +80,7 @@ datasets" matches the 8 test rows; RSNA Spine and MRNet were used only for devel
 - Baseline: PET only, 192^3 at 1 mm centred on the GTVp bounding box, z-scored like
   pretraining. Cases without GTVp are excluded. Combining CT/PET/GTVn is future work.
 - Labels: `hecktor2022_HPV_outcomesBalanced_nospaces.csv` (`PatientID`, `Outcome`), with
-  102 patients and 52 positive. ASSUMPTION: `Outcome` 1 = HPV positive.
+  102 patients and 52 positive. `Outcome` 1 = HPV positive (confirmed).
 - **Centre confounding.** HPV prevalence by centre: MDA 30/31, CHUM 7/8, HGJ 7/17, CHUS 2/8,
   CHUV 1/4, CHUP 5/34. Predicting from the centre alone (`group_prior`) gives a test AUROC
   of 0.84 ± 0.01 over the 5 splits. Splits stratify on centre x label (strata smaller than
