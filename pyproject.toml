@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nnfoundation_bench"
+version = "0.1.0"
+description = "Benchmarking nnFoundation (arXiv:2609.26924) on downstream classification tasks."
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "huggingface-hub>=0.24",
+    "loguru",
+    "numpy",
+    "pandas",
+    "requests",
+    "scikit-learn",
+    "simpleitk>=2.3",
+    "torch",
+    "torchvision",
+    "totalsegmentator>=2.4",
+    "tqdm",
+    "typer",
+]
+
+[dependency-groups]
+dev = ["pytest", "ruff"]
+
+# Host driver is CUDA 12.9: use CUDA 12.8 wheels instead of PyPI's default build.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu128" }]
+torchvision = [{ index = "pytorch-cu128" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[project.scripts]
+nnfb-data = "nnfoundation_bench.dataset:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["nnfoundation_bench"]
+
+[tool.ruff]
+line-length = 99
+src = ["nnfoundation_bench", "tests"]
+
+[tool.ruff.lint]
+extend-select = ["I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
