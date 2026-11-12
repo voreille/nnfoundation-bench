@@ -153,3 +153,20 @@ instead of editing the old one. Status is one of: **active**, **superseded by Dn
 - **Open:** the CNN's last grid is coarse (32 mm), so a small GTVp covers only 1-8
   cells. Pooling earlier stages (16 mm, 8 mm) is the obvious next step for the CNN.
 
+## D14. Per-modality embeddings, late fusion (active, 2026-11-12)
+- **Choice:** each modality (HECKTOR PET and CT, MRNet's three series) is its own
+  single-channel task, with the same case IDs and splits. The frozen encoder gives
+  one embedding per modality, and modalities are combined late:
+  - feature level: concatenation (M2) or mean (M3) of the embeddings, then one probe;
+  - score level: one probe per modality, stacked on val (M4);
+  - later, learned attention across modalities (M5).
+- **Why:** it matches how the models were pretrained (one channel). It also works when
+  modalities share no grid (MRNet planes), lets each modality be cropped and pooled
+  separately, and in our pipeline it lets us compute and cache embeddings once per modality.
+- **Rejected:** early fusion as channels with the stem weights repeated / n (glovita's
+  multi-channel option). With a frozen encoder it only encodes the channel average,
+  and it needs a shared grid.
+- **Requirement:** the tasks being fused must have identical `labels.json` and
+  `splits.json`. If one modality excludes a case (for example a missing series), the
+  splits differ and fusion must use the intersection with fresh splits.
+
