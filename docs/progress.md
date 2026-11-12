@@ -165,4 +165,5 @@ None yet.
 - STOIC prepare ran at 1-2 min per case. TotalSegmentator's fast model now gets a 3 mm
   input, resampled with SimpleITK, through an uncompressed temporary NIfTI. Per case it
   now takes ~18 s instead of ~50 s, with the same lung centre (< 2 mm apart). Masks made
-  before the change stay valid: they are resampled in physical space either way.
+  before the change stay valid: they are resampled in physical space either way. The masks
+  are close to, but not identical to, TotalSegmentator's own output (D18).

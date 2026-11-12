@@ -220,3 +220,40 @@ instead of editing the old one. Status is one of: **active**, **superseded by Dn
 - **Rejected:** the 87 ground-truth `segmentations/`. They cover too few studies.
 - **Open:** not tested on the real archive yet (the download was still running). Check
   slice order and HU on a few studies before the full prepare.
+
+## D18. TotalSegmentator fast model runs on a 3 mm input we resample ourselves (active, 2026-11-12)
+Applies to every TotalSegmentator ROI: KiTS liver, STOIC lungs, RSNA C1-C7.
+- **Fact:** the fast model works at 3 mm. Given a full-resolution scan, TotalSegmentator
+  resamples it to 3 mm, predicts, then resamples the mask back to the original grid. On a
+  512 x 512 x 632 STOIC scan the two resamplings took ~40 s of a ~50 s call, and writing the
+  temporary gzipped NIfTI input took another ~9 s. The prediction itself takes a few seconds.
+- **Choice:** `roi.segment_rois` resamples the scan to 3 mm isotropic with SimpleITK
+  (linear, same origin and direction, pad -1024) and writes it as an uncompressed temporary
+  NIfTI. TotalSegmentator then runs on that. **The mask is kept on the 3 mm grid**; it is not
+  resampled back. Preprocessing resamples masks in physical space, so any grid works.
+  The call takes ~18 s per case (model load included) instead of ~50 s.
+- **The masks are not identical to TotalSegmentator's own output, although both predict at
+  3 mm:**
+  1. *Different 3 mm input.* TotalSegmentator resamples with nnU-Net's code (spline
+     interpolation, array stretched so the first and last voxels align with the original
+     ones). We use SimpleITK (linear, 3 mm steps from the original origin). The spacing is
+     the same, but the grid points sit at slightly different positions with slightly
+     different values. The network is not perfectly shift-invariant, so some boundary
+     voxels change label.
+  2. *Different output grid.* TotalSegmentator resamples its 3 mm prediction back to the
+     native grid (e.g. 0.66 mm), which gives a smoother boundary. Ours stays at 3 mm. The
+     crop centre is the centre of the mask's bounding box, so it moves in 3 mm steps: up to
+     ~1.5 mm of difference from this alone.
+- **Measured** on STOIC case 1072 (lungs, union of the 5 lobes): centre 1.9 mm apart,
+  volume 2444 ml vs 2433 ml (0.5%). Negligible for centring a 192 mm crop.
+- **Consequences:**
+  - The exported `masks/*.b2nd` are blocky at 3 mm. That is fine for organ-scale ROIs
+    (lungs, liver, spine) in ROI-pooling experiments; the CNN's last grid is 32 mm anyway.
+  - These masks are not a substitute for TotalSegmentator's native output, e.g. for organ
+    volumes or small structures. For those, use `fast=False` (full model, native resampling).
+  - Masks made before this change (native grid) stay valid and are reused; mixing both
+    kinds in one task only moves crop centres by ~2 mm.
+- **Rejected:** leaving TotalSegmentator's internal resampling (2.5x slower, about 28 h for
+  STOIC's 2000 cases) and only dropping the gzip (saves ~9 s of ~50 s).
+- **Open:** the model is reloaded for every case (most of the remaining ~18 s). Keeping it
+  loaded, or segmenting several cases in parallel, would be the next speed-up.

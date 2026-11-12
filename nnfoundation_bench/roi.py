@@ -46,7 +46,9 @@ def segment_rois(
     same resampling itself, but its full-resolution resampling in and out took ~40 s of a
     ~50 s STOIC case; on a 3 mm input the whole call takes ~8 s, with the same lung centre
     (< 2 mm apart). The input goes through an uncompressed temporary NIfTI next to
-    ``output`` (TotalSegmentator reads NIfTI only; gzip alone took ~9 s).
+    ``output`` (TotalSegmentator reads NIfTI only; gzip alone took ~9 s). The mask is
+    close to, not identical to, TotalSegmentator's native output: see D18 in
+    docs/decisions.md.
     """
     import SimpleITK as sitk
 

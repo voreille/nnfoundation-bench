@@ -61,6 +61,9 @@ datasets" matches the 8 test rows; RSNA Spine and MRNet were used only for devel
   near-identity.
 - Splits: 5 repeated stratified 40/10/50 splits (seeds 12345+i), used as glovita folds.
   The paper does not say how many it used.
+- TotalSegmentator ROIs: fast (3 mm) model on a 3 mm input resampled by us with SimpleITK,
+  mask kept at 3 mm (D18). Crop centres differ from TotalSegmentator's own native-grid
+  output by ~2 mm. The paper does not say which TotalSegmentator model or settings it used.
 - Metric: AUROC computed with sklearn from the softmax P(class 1) in glovita's
   `predictions.pt`.
 
