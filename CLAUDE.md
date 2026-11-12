@@ -10,11 +10,18 @@ Paper notes and open questions: `references/nnfoundation_protocol.md`. Read it
 before changing the protocol.
 
 ## Environment
+- **Long-running or heavy jobs are run by the user on the host, not by Claude.** This
+  covers full dataset downloads, `prepare` over a whole dataset, training runs, full
+  inference, and anything that takes more than a few minutes or uses lots of GPU, disk or
+  network. Don't launch them. Give the exact commands (copy-pasteable, with
+  `make`/`uv run` and the GPU/fold arguments) and wait for the user to report back.
+  Claude may still run quick checks: unit tests, lint, and smoke tests on a few cases or
+  a couple of steps.
 - Python via **uv** only: `uv sync`, then `uv run ...`. Do not use pip or create venvs.
 - GPUs: 2x H100 NVL. torch/torchvision come from the cu128 index because the host
   driver is CUDA 12.9 and PyPI wheels need CUDA 13. TotalSegmentator runs on the GPU (`--device gpu:1`).
 - **/dev/shm is 64 MB in claude-box**, too small for DataLoader workers on 192^3 volumes.
-  Use `--num-workers 0` in here (slow), or run real training with a bigger shm.
+  Use `--num-workers 0` for smoke tests in here. Real training runs on the host.
 - Memory at batch size 1, 192^3, bf16: ViT peaks at ~48 GB and fits on one H100.
 - `NNFB_DATA_DIR` moves the data root. `TOTALSEG_HOME_DIR` defaults to `models/totalsegmentator`.
 
