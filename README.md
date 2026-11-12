@@ -16,6 +16,8 @@ uv run nnfb-data download kits_liver
 uv run nnfb-data prepare kits_liver --device gpu:0        # TotalSegmentator ROI, 1 mm, 192^3, splits
 uv run nnfb-train kits_liver --model cnn --fold 0 --gpus 0   # add --scratch for the baseline
 uv run nnfb-predict predict kits_liver --model cnn --fold 0
+uv run nnfb-features extract kits_liver --model cnn       # frozen encoder, pooled features
+uv run nnfb-features probe kits_liver --model cnn         # logistic-regression probe per pooling
 uv run nnfb-predict summarize kits_liver                  # mean/std test AUROC over folds
 uv run pytest && uv run ruff check && uv run ruff format --check
 ```
@@ -76,7 +78,7 @@ the paper's classification protocol and the full list of its datasets.
     ├── roi.py            <- TotalSegmentator wrapper
     ├── weights.py        <- nnFoundation checkpoints (pinned HF revisions)
     ├── datasets          <- One module per source dataset + task registry
-    └── modeling          <- glovita launch (train.py), evaluation (predict.py)
+    └── modeling          <- glovita launch (train.py), evaluation (predict.py), frozen probes (features.py)
 ```
 
 Layout follows [Cookiecutter Data Science](https://cookiecutter-data-science.drivendata.org/).

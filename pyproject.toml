@@ -45,6 +45,7 @@ explicit = true
 nnfb-data = "nnfoundation_bench.dataset:app"
 nnfb-train = "nnfoundation_bench.modeling.train:app"
 nnfb-predict = "nnfoundation_bench.modeling.predict:app"
+nfb-features = "nnfoundation_bench.modeling.features:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["nnfoundation_bench"]

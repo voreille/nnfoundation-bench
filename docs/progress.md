@@ -21,6 +21,8 @@ as input channels, ROI handling, and how to pool features within a ROI.
 | `mrnet_*` (9 tasks) | 1250 public exams on the NAS; all file sizes and 40 md5s checked | npy-to-NIfTI conversion and crop smoke-tested on 2 exams per plane | none yet |
 
 Next steps:
+0. Frozen-feature probes (D13) on HECKTOR once `prepare` has run:
+   `nnfb-features extract` then `probe` for cnn and vit, compared to fine-tuning.
 1. Run `uv run nnfb-data prepare hecktor_hpv_pet_gtvp` on the host, then check
    `dataset.json` for failed cases and cases without GTVp.
 2. Run the first baseline: `FOLDS=0 scripts/run_benchmark.sh hecktor_hpv_pet_gtvp`.
@@ -69,4 +71,7 @@ None yet.
 - Added MRNet: 9 tasks (abnormal/ACL/meniscus x sagittal/coronal/axial). The data has no
   spacing and no ROI masks, so we assume 0.625 x 0.625 x 4 mm and use the field of view as
   the ROI (D12). Found that the Redivis label CSVs have no header row.
+- Added frozen-feature extraction with ROI poolings and linear probes (`nnfb-features`,
+  D13). Smoke-tested both encoders on 2 HECKTOR crops on the GPU: `mean` matches glovita's
+  pooled feature, and peak memory is about 3 GB.
 

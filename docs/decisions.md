@@ -124,3 +124,32 @@ instead of editing the old one. Status is one of: **active**, **superseded by Dn
   - MRNet has no ROI masks, so it does not fit the ROI focus of D6. It is mainly useful
     as a large, well-known MR check.
 
+## D13. Frozen-feature linear probes next to glovita fine-tuning (active, 2026-11-12)
+- **Choice:** `nnfb-features extract` loads the encoder with glovita's
+  `nnFoundationEncoder`, so the weights and architecture are the same as in fine-tuning.
+  It runs one bf16 forward pass per prepared crop and pools the last feature map:
+  - CNN: 320 channels on a 6³ grid (32 mm cells);
+  - ViT: 1056 channels on a 24³ token grid (8 mm cells).
+  Poolings:
+  - `mean`: equals glovita's pooled feature;
+  - `roi_mean`: cells weighted by their ROI fraction;
+  - `roi_margin_mean`: ROI dilated by 10 mm.
+  `nnfb-features probe` then fits, per fold, a standardised L2 logistic regression with
+  balanced class weights on train. C is chosen from 1e-4 to 1e2 by val AUROC; val is
+  not refitted into the model, as with glovita's checkpoint selection. Results go to
+  `reports/results/<task>/<model>_frozen_<pooling>_logreg/`.
+- **Why:** we want to use the pretrained models as frozen feature extractors in our ROI
+  pipeline. This is the cheapest way to compare poolings (minutes, not GPU-hours), and the
+  results sit in the same summary as the fine-tuned runs and `group_prior`.
+- **Rejected:**
+  - Per-channel max pooling (whole crop or ROI). It takes each coordinate from a
+    different location, so the pooled vector is not an embedding the encoder produces.
+    This is arbitrary for the ViT, whose channels have no privileged basis. Only weighted
+    means of real embeddings are kept. If we want to emphasise focal locations, use
+    score-level max (MIL) or pick real cells instead.
+  - glovita's `precomputed` encoder plus its head (an SGD-trained linear head on the
+    same features). Fitting a logistic regression directly is simpler and makes tuning
+    the regularisation easy.
+- **Open:** the CNN's last grid is coarse (32 mm), so a small GTVp covers only 1-8
+  cells. Pooling earlier stages (16 mm, 8 mm) is the obvious next step for the CNN.
+

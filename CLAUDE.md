@@ -48,6 +48,9 @@ code skips work that is already done.
 - `uv run nnfb-predict predict <task> --model ... --fold k` and `uv run nnfb-predict summarize <task>`
 - `uv run nnfb-predict group-baseline <task>`: reference run `group_prior` that predicts from the
   `group` column alone (HECKTOR: centre). Always compare model AUROC against it.
+- `uv run nnfb-features extract <task> --model cnn|vit` then `probe <task> --model ...`:
+  frozen-encoder features mean-pooled over the whole crop, the ROI and the ROI + 10 mm, and a
+  logistic-regression probe per fold. Runs are named `<model>_frozen_<pooling>_logreg`.
 - `scripts/run_benchmark.sh <task>` (host only) runs download, prepare, every
   pretrained model x fold spread over `GPUS` (`SCRATCH=1` adds random-init baselines),
   then the summary. It skips
@@ -75,6 +78,7 @@ code skips work that is already done.
 - `modeling/train.py` builds the `accelerate launch` command for glovita.
   `modeling/glovita_entry.py` wraps glovita's train main with two patches: fixed-length
   epochs (50 x 32 samples) and keeping only best/last checkpoints.
+  `modeling/features.py` extracts frozen features and fits the probes.
   `modeling/predict.py` runs `glovita.cli.infer` and computes AUROC (glovita's infer
   reports only acc/F1). Run names come from `modeling/runs.py`: `<model>[_scratch]_lr<lr>[_tag]`.
 - Notebooks: `notebooks/<n>-<initials>-<topic>.ipynb`. Exploration only; reusable code goes in the package.
