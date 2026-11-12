@@ -20,7 +20,8 @@ uv run nnfb-predict summarize kits_liver                  # mean/std test AUROC 
 uv run pytest && uv run ruff check && uv run ruff format --check
 ```
 
-Or run everything (all models x folds x {pretrained, scratch}, spread over the GPUs):
+Or run everything (every pretrained model x fold, spread over the GPUs; `SCRATCH=1` also
+trains the random-init baselines):
 
 ```bash
 GPUS="0 1" scripts/run_benchmark.sh kits_liver

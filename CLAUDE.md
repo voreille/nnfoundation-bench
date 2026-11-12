@@ -3,6 +3,10 @@
 Benchmark of the nnFoundation 3D radiology foundation models (arXiv:2609.26924) on
 downstream tasks. The current scope is **classification**: reproduce the paper's
 protocol, one dataset at a time. KiTS Liver comes first.
+**Purpose:** we want to use the *pretrained* nnFoundation models in our own pipeline. The
+benchmark is a testbed for design choices around them, e.g. how to pool/average
+features within a ROI. Pretrained runs are the default; from-scratch baselines are
+optional context, not the goal.
 Fine-tuning uses the authors' trainer, **glovita**
 (github.com/MIC-DKFZ/image_classification, pinned in pyproject.toml). We prepare the
 data and launch and evaluate runs; we don't reimplement training.
@@ -33,7 +37,8 @@ code skips work that is already done.
 - `uv run nnfb-train <task> --model cnn|vit --fold k [--gpus 0,1 --scratch --lr --epochs --tag]`
 - `uv run nnfb-predict predict <task> --model ... --fold k` and `uv run nnfb-predict summarize <task>`
 - `scripts/run_benchmark.sh <task>` (host only) runs download, prepare, every
-  model x fold x {pretrained, scratch} spread over `GPUS`, then the summary. It skips
+  pretrained model x fold spread over `GPUS` (`SCRATCH=1` adds random-init baselines),
+  then the summary. It skips
   runs that already have `metrics.json`. Settings come from env vars (see the script header).
 
 ## Layout (Cookiecutter Data Science)

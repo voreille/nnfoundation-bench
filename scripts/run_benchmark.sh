@@ -7,7 +7,7 @@
 # Settings (environment variables):
 #   GPUS="0 1"            one worker per GPU; runs are spread across them
 #   MODELS="cnn vit"      pretrained models to fine-tune
-#   SCRATCH=1             also train each architecture from scratch (0 to skip)
+#   SCRATCH=0             1 = also train each architecture from random init (baseline)
 #   FOLDS="0 1 2 3 4"     split indices in splits.json
 #   NUM_WORKERS=8         DataLoader workers (needs a large /dev/shm)
 #   EXTRA_TRAIN_ARGS=""   passed through to nnfb-train, e.g. "--epochs 20"
@@ -20,7 +20,7 @@ set -euo pipefail
 TASK=${1:-kits_liver}
 GPUS=${GPUS:-"0 1"}
 MODELS=${MODELS:-"cnn vit"}
-SCRATCH=${SCRATCH:-1}
+SCRATCH=${SCRATCH:-0}
 FOLDS=${FOLDS:-"0 1 2 3 4"}
 NUM_WORKERS=${NUM_WORKERS:-8}
 EXTRA_TRAIN_ARGS=${EXTRA_TRAIN_ARGS:-}
