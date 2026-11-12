@@ -162,3 +162,7 @@ None yet.
   D16) and RSNA Spine (`fracture`, DICOM read from the Kaggle zip, TotalSegmentator C1-C7,
   D17). ROIs can now be a union of labels. LLD-MMRI case IDs end with the lesion category,
   so they carry the label. STOIC and RSNA were still downloading.
+- STOIC prepare ran at 1-2 min per case. TotalSegmentator's fast model now gets a 3 mm
+  input, resampled with SimpleITK, through an uncompressed temporary NIfTI. Per case it
+  now takes ~18 s instead of ~50 s, with the same lung centre (< 2 mm apart). Masks made
+  before the change stay valid: they are resampled in physical space either way.

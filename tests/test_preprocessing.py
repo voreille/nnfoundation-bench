@@ -132,3 +132,16 @@ def test_split_balances_centres_and_tolerates_tiny_strata():
         test = labels[labels["case_id"].isin(split["test"])]
         assert abs((test["stratum"] == "A_1").sum() - 15) <= 1
         assert abs((test["stratum"] == "B_0").sum() - 14) <= 1
+
+
+def test_resample_isotropic_keeps_extent():
+    import SimpleITK as sitk
+
+    from nnfoundation_bench.roi import resample_isotropic
+
+    image = sitk.Image([512, 512, 100], sitk.sitkInt16)
+    image.SetSpacing((0.6, 0.6, 2.0))
+    image.SetOrigin((-150.0, -150.0, -50.0))
+    low = resample_isotropic(image, 3.0)
+    assert low.GetSize() == (102, 102, 67)
+    assert low.GetSpacing() == (3.0, 3.0, 3.0) and low.GetOrigin() == image.GetOrigin()
