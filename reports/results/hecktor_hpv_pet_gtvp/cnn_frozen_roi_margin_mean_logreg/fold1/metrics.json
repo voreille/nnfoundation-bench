@@ -3,6 +3,8 @@
   "run": "cnn_frozen_roi_margin_mean_logreg",
   "fold": 1,
   "probe_C": 0.001,
+  "probe_l1_ratio": 0.0,
+  "num_features": 320,
   "val_auroc": 0.7,
   "auroc": 0.5015384615384616,
   "ap": 0.538587139395827,

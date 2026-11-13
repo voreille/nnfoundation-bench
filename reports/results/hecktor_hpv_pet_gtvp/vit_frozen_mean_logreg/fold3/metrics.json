@@ -3,6 +3,8 @@
   "run": "vit_frozen_mean_logreg",
   "fold": 3,
   "probe_C": 0.01,
+  "probe_l1_ratio": 0.0,
+  "num_features": 1056,
   "val_auroc": 1.0,
   "auroc": 0.8123076923076923,
   "ap": 0.8380029558592906,

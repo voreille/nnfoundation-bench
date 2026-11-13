@@ -3,6 +3,8 @@
   "run": "vit_frozen_roi_margin_mean_logreg",
   "fold": 3,
   "probe_C": 100.0,
+  "probe_l1_ratio": 0.0,
+  "num_features": 1056,
   "val_auroc": 1.0,
   "auroc": 0.7461538461538462,
   "ap": 0.7936561300081887,

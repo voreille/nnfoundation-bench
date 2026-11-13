@@ -71,6 +71,10 @@ would trigger it. Move an item to "Next steps" when it is picked up.
 - **Silence TotalSegmentator's "Output affine not equal" warning** by snapping the
   temporary 3 mm image's origin to float32-exact values (a sub-micrometre shift). Harmless,
   but about 15 lines per case in the logs.
+- **Drop the `filtered` radiomics set (R2-R5) if it is not worth its cost.** It is
+  about 10x the compute of `original` (hours on STOIC's lung ROIs) and is only a baseline.
+  *Trigger:* if on STOIC and LLD-MMRI it does not clearly beat `original` (R1) or the best
+  embedding probe, keep R1 only and set `RADIOMICS="original"` as the script default.
 - **Radiomics filter ablation:** probe LoG and wavelet subsets separately from the cached
   features. On 1 mm-resampled PET (native ~4 mm), LoG 1 mm and the high-pass wavelets
   likely see interpolation, not texture.

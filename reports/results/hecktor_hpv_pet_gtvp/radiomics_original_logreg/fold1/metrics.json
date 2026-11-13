@@ -3,6 +3,8 @@
   "run": "radiomics_original_logreg",
   "fold": 1,
   "probe_C": 1.0,
+  "probe_l1_ratio": 0.0,
+  "num_features": 107,
   "val_auroc": 0.9666666666666668,
   "auroc": 0.6907692307692308,
   "ap": 0.6021511140901056,
