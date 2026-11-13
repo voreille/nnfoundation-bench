@@ -72,7 +72,7 @@ still to write; **done** = results filled in. n/a = the design does not apply.
 | T1-last | Adaptation | Same runs as T1, evaluated at the last checkpoint (end of the cosine schedule) instead of the best val AUROC (D20) | `cnn_lr0.0003_last`, `vit_lr0.0001_last` | | | | | ready |
 | R1 | Baseline (handcrafted) | pyradiomics in the ROI, original image (107 features), same probe and splits (D21); one value per cell | `radiomics_original_logreg` | 0.744 ± 0.053 | | | | HECKTOR done |
 | R2 | Baseline (handcrafted) | Same as R1, plus LoG (1, 3 mm) and wavelet images (1037 features) | `radiomics_filtered_logreg` | 0.786 ± 0.008 | | | | HECKTOR done |
-| R3 | Baseline (handcrafted) | R2 features, redundant ones dropped per fold (Spearman \|rho\| > 0.9, fit on train; ~305 of 1037 kept), L2 probe (D22) | `radiomics_filtered_corr0.9_logreg` | 0.814 ± 0.018 | | | | HECKTOR done |
+| R3 | Baseline (handcrafted) | R2 features, redundant ones dropped per fold (Spearman \|rho\| > 0.9, fit on train; ~305 of 1037 kept), L2 probe (D22) | `radiomics_filtered_corr0.9_logreg` | 0.814 ± 0.017 | | | | HECKTOR done |
 | R4 | Baseline (handcrafted) | R2 features, elastic-net probe (L1 share 0.1/0.5/0.9 and C chosen on val) | `radiomics_filtered_enet` | 0.817 ± 0.045 | | | | HECKTOR done |
 | R5 | Baseline (handcrafted) | Correlation filter (R3) then elastic net (R4) | `radiomics_filtered_corr0.9_enet` | 0.810 ± 0.044 | | | | HECKTOR done |
 | S1 | Input size | Fixed 192³ at 1 mm (current preprocessing; same as F1-F3) | see F1-F3 | | | | | ready |
@@ -122,7 +122,7 @@ Test AUROC, mean ± std over the 5 repeated 40/10/50 splits unless noted.
 |-----|-------|-------|
 | `group_prior` (centre only) | 0.839 ± 0.011 | reference, no image; see D9 in decisions.md |
 | `radiomics_filtered_enet` (R4) | 0.817 ± 0.045 | best image-only mean; the chosen C and L1 share vary a lot between folds |
-| `radiomics_filtered_corr0.9_logreg` (R3) | 0.814 ± 0.018 | about as good, and more stable |
+| `radiomics_filtered_corr0.9_logreg` (R3) | 0.814 ± 0.017 | about as good, and more stable |
 | `radiomics_filtered_corr0.9_enet` (R5) | 0.810 ± 0.044 | |
 | `radiomics_filtered_logreg` (R2) | 0.786 ± 0.008 | |
 | `vit_frozen_mean_logreg` (F1) | 0.765 ± 0.047 | best embedding run |
