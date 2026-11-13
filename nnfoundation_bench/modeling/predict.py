@@ -147,6 +147,9 @@ DESIGN_RUNS = {
     # Model-independent rows (one value per cell): handcrafted radiomics baselines.
     "R1": "radiomics_original_logreg",
     "R2": "radiomics_filtered_logreg",
+    "R3": "radiomics_filtered_corr0.9_logreg",
+    "R4": "radiomics_filtered_enet",
+    "R5": "radiomics_filtered_corr0.9_enet",
 }
 
 

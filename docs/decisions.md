@@ -327,3 +327,31 @@ Supersedes the zip-reading part of D17; the rest of D17 stands.
     truncated ROI.
   - TotalSegmentator masks are 3 mm (D18), which coarsens shape features.
   - The bin widths are common defaults, not tuned.
+
+## D22. Radiomics redundancy: correlation filter and elastic net, fit per fold (active, 2026-11-13)
+Extends D21; R1/R2 (no selection, L2) keep their meaning.
+- **Choice:** two options on `nnfb-radiomics probe`, combinable:
+  - `--corr-threshold t`: on each fold's train cases only, drop constant features, then,
+    as in caret's `findCorrelation`, repeatedly take the most correlated pair with
+    |Spearman rho| > t and drop the feature with the larger mean |rho| to the remaining
+    ones. NaN get the column median before ranking. t = 0.9 for the table rows.
+  - `--classifier enet`: elastic-net logistic regression (saga), with L1 share
+    {0.1, 0.5, 0.9} and C chosen together on val. `fit_probe` now takes `l1_ratios`;
+    `(0.0,)` is the old L2 probe.
+  - Run names `radiomics_<set>[_corr<t>]_<logreg|enet>`. metrics.json records the
+    number of features used, C and the L1 share. Design rows R3-R5 (filtered set).
+- **Why:** radiomics features are strongly redundant: the same statistic on neighbouring
+  filters, or near-duplicate texture features. 1037 correlated features against ~41
+  training cases is where L2 alone suffers. Spearman, because many features are skewed
+  or related monotonically but not linearly.
+- **Results (HECKTOR):** filtered set: R2 0.786 → R3 0.814 (about 305 features kept) and
+  R4 0.817. On the 107 original features both are worse than plain L2 (0.68-0.71 vs 0.744).
+- **Rejected:**
+  - Selecting features on all cases before splitting: the selection would see the test
+    labels' cases. It is unsupervised, so it doesn't leak labels, but it still leaks
+    test-set statistics.
+  - ICC / test-retest filtering: we have no repeat scans.
+  - Supervised univariate filters (e.g. top-k by AUROC): easy to overfit on ~41 cases.
+- **Open:** the thresholds (0.9) and the L1 grid are common defaults, not tuned. Val
+  selection on 10 cases is noisy (C ranges from 1e-4 to 10 across folds). Repeated k-fold
+  for small datasets would help all probe rows.

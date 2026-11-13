@@ -69,3 +69,39 @@ def test_design_table_radiomics_rows_have_one_value():
 
     lines = design_table({"t": pd.Series({"radiomics_original_logreg": "0.70 ± 0.05"})})
     assert "| R1 | 0.70 ± 0.05 |" in lines.splitlines()
+
+
+def test_run_names_keep_r1_r2_and_encode_options():
+    assert rb.run_name("original") == "radiomics_original_logreg"
+    assert rb.run_name("filtered", 0.9, "enet") == "radiomics_filtered_corr0.9_enet"
+    assert rb.run_name("filtered", None, "enet") == "radiomics_filtered_enet"
+
+
+def test_correlation_filter_drops_redundant_and_constant_features():
+    rng = np.random.default_rng(0)
+    a, b = rng.normal(size=50), rng.normal(size=50)
+    x = np.column_stack([
+        a,
+        np.exp(a),  # monotonic in a: Spearman rho = 1
+        b,
+        b + rng.normal(0, 0.01, 50),  # nearly b
+        np.full(50, 3.0),  # constant
+        rng.normal(size=50),
+    ])  # fmt: skip
+    x[0, 2] = np.nan  # imputed, not fatal
+    keep = rb.correlation_filter(x, 0.9)
+    assert len(keep) == 3 and 4 not in keep and 5 in keep
+    assert len({0, 1} & set(keep)) == 1 and len({2, 3} & set(keep)) == 1
+
+
+def test_elastic_net_grid_selects_an_l1_ratio():
+    from nnfoundation_bench.modeling.features import fit_probe
+
+    rng = np.random.default_rng(0)
+    y = np.repeat([0, 1], 30)
+    x = rng.normal(size=(60, 20))
+    x[:, 0] += 2 * y
+    idx = np.arange(60)
+    split = {"train": idx[::2], "val": idx[1::4], "test": idx[3::4]}
+    _, params, val_auc = fit_probe(x, y, split, l1_ratios=rb.ENET_L1_RATIOS)
+    assert params["l1_ratio"] in rb.ENET_L1_RATIOS and val_auc > 0.8

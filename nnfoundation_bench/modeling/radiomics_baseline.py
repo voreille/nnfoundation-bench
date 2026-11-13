@@ -5,12 +5,15 @@ the QC crops written by ``prepare`` (``data/interim/<task>/{images,masks}/``): 1
 isotropic, physical units (HU / SUV / MR), and the same ROI mask the embedding poolings
 use, so radiomics and the frozen-encoder probes see the same voxels. ``probe`` fits the
 same logistic-regression probe as ``nnfb-features probe``, on the same splits, and
-writes ``reports/results/<task>/radiomics_<features>_logreg/``.
+writes ``reports/results/<task>/radiomics_<features>[_corr<thr>]_<logreg|enet>/``.
+Radiomics features are highly redundant, so ``probe`` can drop correlated features per
+fold (``--corr-threshold``) and/or use an elastic net (``--classifier enet``).
 """
 
 import json
 import logging
 from concurrent.futures import ProcessPoolExecutor
+from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -39,12 +42,49 @@ FEATURE_SETS = {
 }
 
 
+# Elastic-net L1 shares tried on val together with C (0 would be plain L2).
+ENET_L1_RATIOS = (0.1, 0.5, 0.9)
+CLASSIFIERS = ("logreg", "enet")
+
+
 def radiomics_dir(task: str, feature_set: str) -> Path:
     return PROCESSED_DATA_DIR / task / "radiomics" / feature_set
 
 
-def run_name(feature_set: str) -> str:
-    return f"radiomics_{feature_set}_logreg"
+def run_name(
+    feature_set: str, corr_threshold: float | None = None, classifier: str = "logreg"
+) -> str:
+    """``radiomics_<set>[_corr<thr>]_<logreg|enet>``; the defaults keep the R1/R2 names."""
+    corr = "" if corr_threshold is None else f"_corr{corr_threshold:g}"
+    return f"radiomics_{feature_set}{corr}_{classifier}"
+
+
+def correlation_filter(x: np.ndarray, threshold: float = 0.9) -> np.ndarray:
+    """Indices of the features kept after removing redundant ones (fit on train only).
+
+    Constant features are dropped first. Then, as in caret's ``findCorrelation``, while
+    some pair has |Spearman rho| > ``threshold``, the most correlated pair is taken and the
+    feature with the larger mean |rho| to all kept features is dropped. NaN are replaced
+    by the column median before ranking.
+    """
+    from scipy.stats import rankdata
+
+    x = np.where(np.isnan(x), np.nanmedian(x, axis=0, keepdims=True), x)
+    x = np.nan_to_num(x)  # all-NaN columns become constant and are dropped below
+    keep = np.flatnonzero(np.ptp(x, axis=0) > 0)
+    if len(keep) < 2:
+        return keep
+    corr = np.abs(np.corrcoef(rankdata(x[:, keep], axis=0), rowvar=False))
+    np.fill_diagonal(corr, 0.0)
+    alive = np.ones(len(keep), bool)
+    while True:
+        sub = np.where(alive[:, None] & alive[None, :], corr, 0.0)
+        i, j = np.unravel_index(np.argmax(sub), sub.shape)
+        if sub[i, j] <= threshold:
+            break
+        mean_corr = sub.sum(axis=1) / (alive.sum() - 1)
+        alive[i if mean_corr[i] >= mean_corr[j] else j] = False
+    return keep[alive]
 
 
 def extractor_settings(modality: str) -> dict:
@@ -154,13 +194,30 @@ def load_features(task: str, feature_set: str, cases: list[str]) -> tuple[np.nda
 def probe(
     task: str,
     features: str = typer.Option("original", help=f"Feature set: {', '.join(FEATURE_SETS)}"),
+    corr_threshold: float | None = typer.Option(
+        None, help="Drop redundant features: |Spearman rho| above this, fit per fold on train"
+    ),
+    classifier: str = typer.Option(
+        "logreg", help="logreg (L2) or enet (elastic net, L1 share chosen on val)"
+    ),
 ) -> None:
     """Logistic-regression probe on radiomics features, every fold."""
+    if classifier not in CLASSIFIERS:
+        raise typer.BadParameter(f"classifier must be one of {CLASSIFIERS}")
     cases, _, _ = task_labels(task)
     x, names = load_features(task, features, cases)
     missing = int(np.isnan(x).any(axis=1).sum())
     logger.info(f"{len(names)} features, {missing} of {len(cases)} cases with missing values")
-    probe_folds(task, run_name(features), x)
+    select = (
+        None if corr_threshold is None else partial(correlation_filter, threshold=corr_threshold)
+    )
+    probe_folds(
+        task,
+        run_name(features, corr_threshold, classifier),
+        x,
+        select=select,
+        l1_ratios=ENET_L1_RATIOS if classifier == "enet" else (0.0,),
+    )
 
 
 if __name__ == "__main__":

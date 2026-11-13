@@ -39,8 +39,8 @@ def test_fit_probe_separable():
     x = rng.normal(size=(40, 5)) + y[:, None] * 3
     idx = np.arange(40)
     split = {"train": idx[::2], "val": idx[1::4], "test": idx[3::4]}
-    scores, c, val_auc = fit_probe(x, y, split)
-    assert val_auc == 1.0 and c in features.PROBE_CS
+    scores, params, val_auc = fit_probe(x, y, split)
+    assert val_auc == 1.0 and params["C"] in features.PROBE_CS and params["l1_ratio"] == 0
     assert ((scores > 0.5) == y[split["test"]]).all()
 
 

@@ -1,0 +1,13 @@
+{
+  "task": "hecktor_hpv_pet_gtvp",
+  "run": "radiomics_original_corr0.9_enet",
+  "fold": 4,
+  "probe_C": 0.0001,
+  "probe_l1_ratio": 0.1,
+  "num_features": 36,
+  "val_auroc": 0.5,
+  "auroc": 0.5,
+  "ap": 0.49019607843137253,
+  "n": 51,
+  "n_positive": 25
+}

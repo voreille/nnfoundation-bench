@@ -53,7 +53,8 @@ code skips work that is already done.
   logistic-regression probe per fold. Runs are named `<model>_frozen_<pooling>_logreg`.
 - `uv run nnfb-radiomics extract <task> [--features original|filtered]` then `probe <task>`:
   pyradiomics baseline in the ROI of the QC crops, same probe and splits as the embeddings.
-  Runs are named `radiomics_<features>_logreg`.
+  `probe` options: `--corr-threshold 0.9` (drop redundant features per fold),
+  `--classifier enet` (elastic net). Runs are named `radiomics_<features>[_corr<t>]_<logreg|enet>`.
 - `uv run nnfb-predict table [tasks...]`: the design-benchmark grid (markdown, cells `CNN / ViT`)
   from all results, for the table in `docs/progress.md`.
 - `scripts/run_benchmark.sh <task>` (host only) runs download, prepare, every
