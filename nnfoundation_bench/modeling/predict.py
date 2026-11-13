@@ -4,6 +4,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import Annotated
 
 import numpy as np
 import pandas as pd
@@ -125,6 +126,51 @@ def summarize(task: str) -> None:
     summary = df.groupby("run")["auroc"].agg(["mean", "std", "count"]).sort_values("mean")
     summary.to_csv(RESULTS_DIR / task / "summary.csv")
     typer.echo(summary.to_string(float_format="%.4f"))
+
+
+# Design-benchmark rows (docs/progress.md) -> run name per pretrained model.
+DESIGN_RUNS = {
+    "F1": lambda m: f"{m}_frozen_mean_logreg",
+    "F2": lambda m: f"{m}_frozen_roi_mean_logreg",
+    "F3": lambda m: f"{m}_frozen_roi_margin_mean_logreg",
+    "T1": lambda m: run_name(m),
+}
+
+
+def auroc_summary(task: str) -> pd.Series:
+    """``"mean ± std"`` test AUROC per run of TASK (empty if nothing is evaluated)."""
+    rows = [json.loads(p.read_text()) for p in (RESULTS_DIR / task).glob("*/fold*/metrics.json")]
+    if not rows:
+        return pd.Series(dtype=str)
+    stats = pd.DataFrame(rows).groupby("run")["auroc"].agg(["mean", "std", "count"])
+    return stats.apply(
+        lambda r: (
+            f"{r['mean']:.3f} ± {r['std']:.3f}" + ("" if r["count"] == 5 else f" (n={r['count']})")
+        ),
+        axis=1,
+    )
+
+
+def design_table(summaries: dict[str, pd.Series], models: tuple[str, ...] = ("cnn", "vit")) -> str:
+    """Markdown grid: one row per design, one column per task, cells ``CNN / ViT``."""
+    lines = ["| ID | " + " | ".join(summaries) + " |", "|----|" + "---|" * len(summaries)]
+    for design, run in DESIGN_RUNS.items():
+        cells = [" / ".join(s.get(run(m), "-") for m in models) for s in summaries.values()]
+        lines.append(f"| {design} | " + " | ".join(cells) + " |")
+    cells = [s.get("group_prior", "n/a") for s in summaries.values()]
+    lines.append("| ref | " + " | ".join(cells) + " |")
+    return "\n".join(lines)
+
+
+@app.command()
+def table(
+    tasks: Annotated[
+        list[str] | None, typer.Argument(help="Tasks (default: all with results)")
+    ] = None,
+) -> None:
+    """Design-benchmark grid (markdown) from every task's results; ref = group_prior."""
+    tasks = tasks or sorted(p.name for p in RESULTS_DIR.iterdir() if p.is_dir())
+    typer.echo(design_table({task: auroc_summary(task) for task in tasks}))
 
 
 if __name__ == "__main__":

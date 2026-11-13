@@ -55,3 +55,19 @@ def test_group_prior_scores_use_train_val_rates_only():
     scores = group_prior_scores(labels, split).set_index("case_id")["score"]
     assert scores["e"] == 1.0  # group A is all positive in train+val
     assert scores["f"] == 0.5  # unseen group C -> overall train+val rate
+
+
+def test_design_table_cells_are_cnn_slash_vit():
+    import pandas as pd
+
+    from nnfoundation_bench.modeling.predict import design_table
+
+    summary = pd.Series(
+        {"cnn_frozen_mean_logreg": "0.51 ± 0.06", "vit_frozen_mean_logreg": "0.77 ± 0.05",
+         "group_prior": "0.84 ± 0.01"}
+    )  # fmt: skip
+    lines = design_table({"hecktor": summary}).splitlines()
+    assert lines[0] == "| ID | hecktor |"
+    assert "| F1 | 0.51 ± 0.06 / 0.77 ± 0.05 |" in lines
+    assert "| F2 | - / - |" in lines
+    assert lines[-1] == "| ref | 0.84 ± 0.01 |"

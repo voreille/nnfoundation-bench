@@ -51,6 +51,8 @@ code skips work that is already done.
 - `uv run nnfb-features extract <task> --model cnn|vit` then `probe <task> --model ...`:
   frozen-encoder features mean-pooled over the whole crop, the ROI and the ROI + 10 mm, and a
   logistic-regression probe per fold. Runs are named `<model>_frozen_<pooling>_logreg`.
+- `uv run nnfb-predict table [tasks...]`: the design-benchmark grid (markdown, cells `CNN / ViT`)
+  from all results, for the table in `docs/progress.md`.
 - `scripts/run_benchmark.sh <task>` (host only) runs download, prepare, every
   pretrained model x fold spread over `GPUS` (`SCRATCH=1` adds random-init baselines),
   then the summary. It skips

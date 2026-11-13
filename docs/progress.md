@@ -49,6 +49,7 @@ mean ± std over the 5 splits.
 | HECKTOR HPV (`hecktor_hpv_pet_gtvp`) | PET, CT (same patient, registered) | GTVp (dataset SEG) | PET, 192³ at 1 mm centred on the GTVp | centre only **0.839 ± 0.011**; target ≥ 0.99 |
 | MRNet (`mrnet_abnormal_*`) | sagittal T2 FS, coronal T1, axial PD FS (separate series, no shared geometry) | field of view | sagittal, 192³ at 1 mm (whole series) | MRNet paper (all 3 planes): abnormal 0.94, ACL 0.97, meniscus 0.85 (official test set, not comparable to our splits) |
 | KiTS Liver (`kits_liver`) | CT | liver (TotalSegmentator), often larger than 192 mm | CT, 192³ at 1 mm centred on the liver | about 5 test positives per split: noisy |
+| STOIC 2021 (`stoic_severe`) | CT | lungs (TotalSegmentator, 3 mm masks, D18); wider than 192 mm | CT, 192³ at 1 mm centred on the lungs | 301/2000 severe; STOIC challenge (severe, hidden test set): about 0.8 |
 
 Unless a row says otherwise:
 - **Input:** the dataset's default input above, z-scored over the whole scan.
@@ -56,31 +57,33 @@ Unless a row says otherwise:
 - **Several modalities:** embeddings are extracted per modality, each from its own
   single-channel task, then fused late (M2-M5, D14).
 
+Cells can be regenerated with `uv run nnfb-predict table [tasks...]`.
+
 Status: **ready** = code exists and the run is waiting for the host; **planned** = code
 still to write; **done** = results filled in. n/a = the design does not apply.
 
-| ID | Axis | Design | Run name | HECKTOR | MRNet | KiTS Liver | Status |
-|----|------|--------|----------|---------|-------|------------|--------|
-| F1 | Pooling (frozen) | Mean over the whole crop (what glovita's head sees) | `<m>_frozen_mean_logreg` | | | | ready |
-| F2 | Pooling (frozen) | Mean over the ROI, cells weighted by ROI fraction | `<m>_frozen_roi_mean_logreg` | | n/a (ROI = FOV, same as F1 up to padding) | | ready |
-| F3 | Pooling (frozen) | Mean over the ROI + 10 mm | `<m>_frozen_roi_margin_mean_logreg` | | n/a | | ready |
-| F4 | Pooling (frozen) | ROI mean over earlier CNN stages (16 mm, 8 mm cells); ViT n/a | | | | | planned |
-| T1 | Adaptation | glovita full fine-tuning, paper recipe (D1) | `cnn_lr0.0003`, `vit_lr0.0001` | | | | ready |
-| S1 | Input size | Fixed 192³ at 1 mm (current preprocessing; same as F1-F3) | see F1-F3 | | | | ready |
-| S2 | Input size | Native 1 mm, input size = FOV; ViT absolute position embedding interpolated (glovita default) | | | | | planned |
-| S3 | Input size | Same as S2, but the ViT absolute position embedding is cut out (FOV < 192) instead of interpolated, consistent with RoPE; CNN n/a | | | | | planned |
-| S4 | Input size | Rescale the FOV to 192³ (spacing = FOV / 192) | | | | | planned |
-| S5 | Input size | Tiling: 192³ windows at 1 mm covering the FOV, ROI-weighted mean of features (FOV > 192) | | | n/a (knee fits in 192) | | planned |
-| S6 | Input size | ROI-adaptive native: per-case FOV = ROI extent + margin, as in S2 | | | n/a | | planned |
-| S7 | Input size | ROI-adaptive rescale: per-case FOV = ROI extent + margin, as in S4 | | | n/a | | planned |
-| I1 | Input | Other single modality: CT (HECKTOR), coronal or axial series (MRNet) | | | | n/a | planned |
-| I3 | Input | ROI = GTVp ∪ GTVn | | | n/a | n/a | planned |
-| M1 | Modality fusion | Early fusion: modalities as channels on one grid, stem weights repeated / n (glovita). Not planned: we extract embeddings per modality (D14) | | n/a | n/a | n/a | dropped |
-| M2 | Modality fusion (late) | Feature-level: per-modality embeddings concatenated, one probe | | | | n/a | planned |
-| M3 | Modality fusion (late) | Feature-level: mean of the per-modality embeddings (one encoder, so one space), one probe | | | | n/a | planned |
-| M4 | Modality fusion (late) | Score-level: one probe per modality, scores combined by a logistic regression fitted on val (the MRNet paper's scheme) | | | | n/a | planned |
-| M5 | Modality fusion (late) | Learned attention across the per-modality embeddings or token maps (needs `--save-maps` and a small trained head) | | | | n/a | planned |
-| E1 | Evaluation | Leave-one-centre-out (removes the centre shortcut, D9) | | | n/a (single centre) | n/a (single centre) | planned |
+| ID | Axis | Design | Run name | HECKTOR | MRNet | KiTS Liver | STOIC severe | Status |
+|----|------|--------|----------|---------|-------|------------|------------|--------|
+| F1 | Pooling (frozen) | Mean over the whole crop (what glovita's head sees) | `<m>_frozen_mean_logreg` | 0.514 ± 0.061 / 0.765 ± 0.047 | | | | HECKTOR done; STOIC ready |
+| F2 | Pooling (frozen) | Mean over the ROI, cells weighted by ROI fraction | `<m>_frozen_roi_mean_logreg` | 0.459 ± 0.053 / 0.710 ± 0.058 | n/a (ROI = FOV, same as F1 up to padding) | | | HECKTOR done; STOIC ready |
+| F3 | Pooling (frozen) | Mean over the ROI + 10 mm | `<m>_frozen_roi_margin_mean_logreg` | 0.498 ± 0.050 / 0.742 ± 0.015 | n/a | | | HECKTOR done; STOIC ready |
+| F4 | Pooling (frozen) | ROI mean over earlier CNN stages (16 mm, 8 mm cells); ViT n/a | | | | | | planned |
+| T1 | Adaptation | glovita full fine-tuning, paper recipe (D1) | `cnn_lr0.0003`, `vit_lr0.0001` | | | | | ready |
+| S1 | Input size | Fixed 192³ at 1 mm (current preprocessing; same as F1-F3) | see F1-F3 | | | | | ready |
+| S2 | Input size | Native 1 mm, input size = FOV; ViT absolute position embedding interpolated (glovita default) | | | | | | planned |
+| S3 | Input size | Same as S2, but the ViT absolute position embedding is cut out (FOV < 192) instead of interpolated, consistent with RoPE; CNN n/a | | | | | | planned |
+| S4 | Input size | Rescale the FOV to 192³ (spacing = FOV / 192) | | | | | | planned |
+| S5 | Input size | Tiling: 192³ windows at 1 mm covering the FOV, ROI-weighted mean of features (FOV > 192) | | | n/a (knee fits in 192) | | | planned |
+| S6 | Input size | ROI-adaptive native: per-case FOV = ROI extent + margin, as in S2 | | | n/a | | | planned |
+| S7 | Input size | ROI-adaptive rescale: per-case FOV = ROI extent + margin, as in S4 | | | n/a | | | planned |
+| I1 | Input | Other single modality: CT (HECKTOR), coronal or axial series (MRNet) | | | | n/a | n/a (CT only) | planned |
+| I3 | Input | ROI = GTVp ∪ GTVn | | | n/a | n/a | n/a | planned |
+| M1 | Modality fusion | Early fusion: modalities as channels on one grid, stem weights repeated / n (glovita). Not planned: we extract embeddings per modality (D14) | | n/a | n/a | n/a | n/a | dropped |
+| M2 | Modality fusion (late) | Feature-level: per-modality embeddings concatenated, one probe | | | | n/a | n/a | planned |
+| M3 | Modality fusion (late) | Feature-level: mean of the per-modality embeddings (one encoder, so one space), one probe | | | | n/a | n/a | planned |
+| M4 | Modality fusion (late) | Score-level: one probe per modality, scores combined by a logistic regression fitted on val (the MRNet paper's scheme) | | | | n/a | n/a | planned |
+| M5 | Modality fusion (late) | Learned attention across the per-modality embeddings or token maps (needs `--save-maps` and a small trained head) | | | | n/a | n/a | planned |
+| E1 | Evaluation | Leave-one-centre-out (removes the centre shortcut, D9) | | | n/a (single centre) | n/a (single centre) | n/a (no centre released) | planned |
 
 ### FOV sweep (designs S2-S5)
 
@@ -112,6 +115,24 @@ Test AUROC, mean ± std over the 5 repeated 40/10/50 splits unless noted.
 | Run | AUROC | Notes |
 |-----|-------|-------|
 | `group_prior` (centre only) | 0.839 ± 0.011 | reference, no image; see D9 in decisions.md |
+| `vit_frozen_mean_logreg` (F1) | 0.765 ± 0.047 | best image-only run so far, still below the centre alone |
+| `vit_frozen_roi_margin_mean_logreg` (F3) | 0.742 ± 0.015 | |
+| `vit_frozen_roi_mean_logreg` (F2) | 0.710 ± 0.058 | |
+| `cnn_frozen_mean_logreg` (F1) | 0.514 ± 0.061 | chance level, see below |
+| `cnn_frozen_roi_margin_mean_logreg` (F3) | 0.498 ± 0.050 | |
+| `cnn_frozen_roi_mean_logreg` (F2) | 0.459 ± 0.053 | |
+
+Frozen probes (D13), extracted on 2026-11-13: logistic regression on 40 train cases, C
+chosen on 10 val cases, tested on 51. Small, so expect noise.
+- **ViT > CNN by a wide margin.** The CNN's pooled last-stage features hardly vary between
+  patients (case-to-case correlation 0.998, between-case std about 1.5% of the feature
+  magnitude, 30 of 320 dims constant). bf16 is not the cause: its error is 16% of that
+  between-case spread (checked against fp32 on 6 cases). Next: earlier CNN stages (F4).
+- **ROI pooling does not help yet**: whole crop ≥ ROI + 10 mm ≥ ROI, for both models. With a
+  GTVp of a few cm, the ROI covers few cells; the context around the tumour seems to carry
+  signal (or centre information, D9).
+- Nothing beats `group_prior` (0.84). Image features may partly encode the centre too; the
+  leave-one-centre-out evaluation (E1) is needed to tell.
 
 ### kits_liver
 
@@ -173,3 +194,7 @@ None yet.
   slice order, spacing and the C1-C7 ROI are correct. About 22% of each scan is scanner
   padding at -2048 to -3669, which distorted the whole-scan z-score in a scanner-dependent
   way, so it is now clamped to -1024 HU.
+- Ran the first frozen probes (F1-F3, CNN and ViT) on HECKTOR and added
+  `nnfb-predict table`, which prints the design grid from all results. ViT 0.71-0.77,
+  CNN at chance; all below the centre-only 0.84. Added a STOIC severe column to the design
+  table. Fixed the CLI name: `pyproject.toml` declared `nfb-features`, now `nnfb-features`.

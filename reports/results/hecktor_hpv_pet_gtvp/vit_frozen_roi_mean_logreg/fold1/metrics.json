@@ -1,0 +1,11 @@
+{
+  "task": "hecktor_hpv_pet_gtvp",
+  "run": "vit_frozen_roi_mean_logreg",
+  "fold": 1,
+  "probe_C": 0.001,
+  "val_auroc": 0.7333333333333333,
+  "auroc": 0.7061538461538461,
+  "ap": 0.7087593399127066,
+  "n": 51,
+  "n_positive": 25
+}
