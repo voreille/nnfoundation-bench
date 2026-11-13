@@ -57,6 +57,9 @@ code skips work that is already done.
   `--classifier enet` (elastic net). Runs are named `radiomics_<features>[_corr<t>]_<logreg|enet>`.
 - `uv run nnfb-predict table [tasks...]`: the design-benchmark grid (markdown, cells `CNN / ViT`)
   from all results, for the table in `docs/progress.md`.
+- `scripts/run_probes.sh <task>` (host only): for a prepared task, extracts frozen features
+  (CNN and ViT on two GPUs) and radiomics, fits every probe (F1-F3, R1-R5), prints the
+  design grid. `RADIOMICS=""` skips radiomics (MRNet has no ROI). Settings in the header.
 - `scripts/run_benchmark.sh <task>` (host only) runs download, prepare, every
   pretrained model x fold spread over `GPUS` (`SCRATCH=1` adds random-init baselines),
   then the summary. It skips

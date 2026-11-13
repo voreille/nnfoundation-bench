@@ -32,7 +32,13 @@ trains the random-init baselines):
 GPUS="0 1" scripts/run_benchmark.sh kits_liver
 ```
 
-The script can be rerun safely. Downloads and preprocessing skip files that already
+Frozen-feature probes and radiomics baselines for a prepared task (no fine-tuning):
+
+```bash
+scripts/run_probes.sh hecktor_hpv_pet_gtvp
+```
+
+The scripts can be rerun safely. Downloads and preprocessing skip files that already
 exist, and runs that already have test metrics are skipped. Logs go to `reports/logs/<task>/`.
 
 Training needs a large `/dev/shm` for DataLoader workers (one sample is about 28 MB).

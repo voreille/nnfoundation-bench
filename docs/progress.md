@@ -271,3 +271,5 @@ None yet.
   elastic net 0.817, both up from 0.786. On the original 107 features both hurt.
 - Added a Backlog section to this file. Nested CV for probe selection is parked until the
   probes have run on LLD-MMRI and STOIC; other deferred items from today are listed there too.
+- Added `scripts/run_probes.sh <task>`: frozen features + radiomics + all probes + design
+  grid for one prepared task. Checked on HECKTOR: same numbers as the runs by hand.
