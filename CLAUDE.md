@@ -16,8 +16,8 @@ data and launch and evaluate runs; we don't reimplement training.
 Paper notes and open questions: `references/nnfoundation_protocol.md`. Read it
 before changing the protocol.
 **Keep `docs/` up to date as part of the work, not afterwards:**
-- `docs/progress.md`: status table, next steps, results tables (mean ± std AUROC per run),
-  and a dated log. Update it whenever a task, run or result changes.
+- `docs/progress.md`: status table, next steps, backlog (parked ideas, each with what would
+  trigger it), results tables (mean ± std AUROC per run), and a dated log. Update it whenever a task, run or result changes.
 - `docs/decisions.md`: numbered decision records (choice / why / rejected / open). Add a
   new Dn for every design choice. Never rewrite an old entry; supersede it.
 

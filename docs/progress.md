@@ -38,6 +38,43 @@ Next steps:
 7. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
    "pathology"). Each task needs about 12 GB in `data/processed`. See D12.
 
+## Backlog
+
+Ideas parked until results on more datasets show they are worth it. Each item says what
+would trigger it. Move an item to "Next steps" when it is picked up.
+
+- **Nested CV for model selection on small datasets.** Choosing the probe pipeline or its
+  hyperparameters on 10 val cases is noise: on HECKTOR the chosen C ranges from 1e-4 to 10
+  across splits (D22). Two options:
+  - **A.** Keep the 5 outer 40/10/50 splits. Merge train + val and choose the whole
+    sklearn pipeline by repeated stratified 5-fold CV inside it (`GridSearchCV`; the
+    correlation filter as a transformer, refitted per inner fold). Refit the best on
+    train + val, then score the same test cases as today. Runs suffixed `_ncv`. Optional
+    one-standard-error rule. Applies to the embedding probes as well as radiomics.
+  - **B.** Repeated nested k-fold over all cases (outer 5-fold x 5 repeats, inner CV as
+    in A). More training data per fit, but the test sets differ from the fine-tuning splits.
+  - *Trigger:* first run the radiomics and embedding probes on LLD-MMRI (498 cases, 50 val)
+    and STOIC (2000, 200 val). If val selection is unstable there too, or the gap between
+    val and test AUROC is large on small tasks, implement A. B only for HECKTOR / LLD-MMRI.
+- **Use `last.pt` and fold val back into train for fine-tuning** if T1-last matches T1
+  on small datasets (D20).
+- **Earlier CNN stages for pooling (F4):** the last CNN stage barely varies between
+  patients on HECKTOR (case-to-case correlation 0.998).
+- **Keep TotalSegmentator loaded between cases** (or segment several in parallel): model
+  loading is most of the remaining ~18 s per case (D18). *Trigger:* the next big
+  TotalSegmentator prepare (RSNA, KiTS).
+- **Full TotalSegmentator model (`fast=False`) for RSNA vertebrae:** vertebrae are
+  15-20 mm, so 3 mm masks are coarse next to 8 mm ViT cells (D18).
+- **STOIC: check that dense consolidation is inside the lung mask** on a few severe
+  cases (ITK-SNAP, `data/interim/stoic_severe/`). If it is excluded, ROI pooling drops signal
+  more in severe cases than in the others.
+- **Silence TotalSegmentator's "Output affine not equal" warning** by snapping the
+  temporary 3 mm image's origin to float32-exact values (a sub-micrometre shift). Harmless,
+  but about 15 lines per case in the logs.
+- **Radiomics filter ablation:** probe LoG and wavelet subsets separately from the cached
+  features. On 1 mm-resampled PET (native ~4 mm), LoG 1 mm and the high-pass wavelets
+  likely see interpolation, not texture.
+
 ## Design benchmark
 
 The designs we compare for using the pretrained models in our pipeline, run on every
@@ -232,3 +269,5 @@ None yet.
 - Radiomics probe options (D22): `--corr-threshold` (Spearman filter fit per fold on
   train) and `--classifier enet` (elastic net). HECKTOR filtered set: corr 0.9 + L2 0.814,
   elastic net 0.817, both up from 0.786. On the original 107 features both hurt.
+- Added a Backlog section to this file. Nested CV for probe selection is parked until the
+  probes have run on LLD-MMRI and STOIC; other deferred items from today are listed there too.
