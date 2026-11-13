@@ -17,27 +17,25 @@ as input channels, ROI handling, and how to pool features within a ROI.
 | Task | Data | Pipeline | Results |
 |------|------|----------|---------|
 | `kits_liver` | 2/489 raw images downloaded | prepare, train and predict smoke-tested | none yet |
-| `hecktor_hpv_pet_gtvp` | 102 patients on the NAS, labels found | okapy conversion and crop smoke-tested on 3 patients | centre-only reference: AUROC 0.839 ± 0.011 |
+| `hecktor_hpv_pet_gtvp` | 102 patients on the NAS, labels found | prepared: 102 cases, 52 positive, no failures | centre-only reference: AUROC 0.839 ± 0.011 |
 | `mrnet_*` (9 tasks) | 1250 public exams on the NAS; all file sizes and 40 md5s checked | npy-to-NIfTI conversion and crop smoke-tested on 2 exams per plane | none yet |
 | `lld_mmri_malignant_*` (8 phases) | 498 patients x 8 series on the NAS, all files present | crop around the dataset lesion mask smoke-tested on 2 cases x 3 phases | none yet |
-| `stoic_severe`, `stoic_covid` | download running (216/2000 scans, `reference.csv` not there yet) | TotalSegmentator lungs and crop smoke-tested on 1 case | none yet |
-| `rsna_spine_fracture` | Kaggle zip downloading (about 64%) | zip reader and DICOM conversion unit-tested; not run on real data | none yet |
+| `stoic_severe`, `stoic_covid` | 2000 scans | `stoic_severe` prepared: 2000 cases, 301 positive, no failures | none yet |
+| `rsna_spine_fracture` | 2019 studies unpacked on the NAS, checked (961 positive) | conversion, slice order and C1-C7 ROI smoke-tested on 3 studies | none yet |
 
 Next steps:
-1. Run `uv run nnfb-data prepare hecktor_hpv_pet_gtvp` on the host, then check
-   `dataset.json` for failed cases and cases without GTVp.
-2. Frozen-feature probes (D13): `nnfb-features extract` then `probe`, for cnn and vit
-   (designs F1-F3 below).
+1. Frozen-feature probes (D13) on the prepared tasks (`hecktor_hpv_pet_gtvp`,
+   `stoic_severe`): `nnfb-features extract` then `probe`, for cnn and vit (designs F1-F3).
+2. Prepare on the host: the 8 `lld_mmri_malignant_<phase>` tasks, `stoic_covid` (reuses the
+   lung masks) and `rsna_spine_fracture`. Then check each `dataset.json` for failed cases.
 3. Fine-tuning baseline with glovita: `FOLDS=0 scripts/run_benchmark.sh hecktor_hpv_pet_gtvp`
    (design T1).
 4. Input-size designs S2-S7: add `--fov` / `--mode` to `nnfb-features extract`, then run
    the FOV sweep.
-5. KiTS Liver full run (background, paper reproduction).
-6. LLD-MMRI: `uv run nnfb-data prepare lld_mmri_malignant_<phase>` for the 8 phases, then
-   frozen probes per phase and late fusion (D14, D15). It has lesion masks, so it fits the ROI focus.
-7. STOIC and RSNA Spine: when the downloads finish, run `nnfb-data download <task>` (it checks
-   the copy is complete), smoke-test a few RSNA studies, then `prepare` on the host.
-8. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
+5. LLD-MMRI: frozen probes per phase, then late fusion (D14, D15). It has lesion masks, so
+   it fits the ROI focus.
+6. KiTS Liver full run (background, paper reproduction).
+7. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
    "pathology"). Each task needs about 12 GB in `data/processed`. See D12.
 
 ## Design benchmark
@@ -167,3 +165,11 @@ None yet.
   now takes ~18 s instead of ~50 s, with the same lung centre (< 2 mm apart). Masks made
   before the change stay valid: they are resampled in physical space either way. The masks
   are close to, but not identical to, TotalSegmentator's own output (D18).
+
+### 2026-11-13
+- `hecktor_hpv_pet_gtvp` and `stoic_severe` are prepared on the host, with no failed cases
+  and no missing ROIs.
+- RSNA Spine was unpacked on the NAS. The reader now uses the folders (D19). On 3 studies,
+  slice order, spacing and the C1-C7 ROI are correct. About 22% of each scan is scanner
+  padding at -2048 to -3669, which distorted the whole-scan z-score in a scanner-dependent
+  way, so it is now clamped to -1024 HU.

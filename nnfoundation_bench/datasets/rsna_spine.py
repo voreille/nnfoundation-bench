@@ -1,22 +1,18 @@
 """RSNA 2022 Cervical Spine Fracture Detection (Kaggle), training set.
 
-The Kaggle competition archive is placed in ``data/raw/RSNA-Spine/`` (symlink to the NAS
-copy) and is **not unpacked**: it is ~190 GB of DICOM. Members used:
+The Kaggle archive was unpacked by hand in ``data/raw/RSNA-Spine/`` (symlink to the NAS
+copy). Used:
 
 - ``train.csv``: ``StudyInstanceUID,patient_overall,C1..C7`` (2019 studies);
 - ``train_images/<StudyInstanceUID>/<n>.dcm``: one axial CT series per study.
 
-Each study is read straight from the zip into a temporary folder, converted to an int16
-NIfTI in HU with SimpleITK (GDCM sorts the slices and decodes the JPEG-lossless files) and
-cached under ``data/interim/rsna_spine/nifti/``. There are no ROI masks for most studies
-(``segmentations/`` covers 87), so the crop is centred on the cervical spine (union of the
-TotalSegmentator vertebrae C1-C7), cached under ``data/interim/rsna_spine/totalseg/``.
+Each study is converted to an int16 NIfTI in HU with SimpleITK (GDCM sorts the slices and
+decodes the JPEG-lossless files) and cached under ``data/interim/rsna_spine/nifti/``.
+There are no ROI masks for most studies (``segmentations/`` covers 87), so the crop is
+centred on the cervical spine (union of the TotalSegmentator vertebrae C1-C7), cached
+under ``data/interim/rsna_spine/totalseg/``.
 """
 
-import io
-import json
-import shutil
-import zipfile
 from functools import cache
 from pathlib import Path
 
@@ -30,57 +26,42 @@ from nnfoundation_bench.roi import segment_rois, totalseg_class_ids
 
 SOURCE = "rsna_spine"
 RAW_DIR = RAW_DATA_DIR / "RSNA-Spine"  # symlink to the NAS copy
-ZIP_PATH = RAW_DIR / "rsna-2022-cervical-spine-fracture-detection.zip"
+TRAIN_CSV = RAW_DIR / "train.csv"
+IMAGES_DIR = RAW_DIR / "train_images"
 INTERIM_DIR = INTERIM_DATA_DIR / SOURCE
 NIFTI_DIR = INTERIM_DIR / "nifti"
 TOTALSEG_DIR = INTERIM_DIR / "totalseg"
-INDEX_PATH = INTERIM_DIR / "zip_index.json"
 NUM_STUDIES = 2019
 
 VERTEBRAE = tuple(f"vertebrae_C{i}" for i in range(1, 8))
 
 
 def download() -> None:
-    """Nothing to download here (Kaggle, fetched on the host). Check the archive is complete."""
-    partial = ZIP_PATH.with_name(ZIP_PATH.name + ".kaggle-partial")
-    if partial.exists() or not ZIP_PATH.exists():
-        raise FileNotFoundError(f"{ZIP_PATH}: the Kaggle download is unfinished.")
-    if not zipfile.is_zipfile(ZIP_PATH):
-        raise RuntimeError(f"{ZIP_PATH} is not a readable zip (truncated download?)")
-    studies = zip_index()
+    """Nothing to download here (Kaggle, fetched and unpacked on the host). Check the copy.
+
+    Listing 2019 folders on the NAS takes ~5 min; a marker under data/interim skips it later.
+    """
+    marker = INTERIM_DIR / "raw_verified"
+    if marker.exists():
+        return
+    if not TRAIN_CSV.exists() or not IMAGES_DIR.is_dir():
+        raise FileNotFoundError(f"{RAW_DIR}: train.csv or train_images/ missing (unpacked?)")
     labels = load_train_csv()
-    missing = sorted(set(labels["StudyInstanceUID"]) - set(studies))
+    missing = [
+        uid
+        for uid in labels["StudyInstanceUID"]
+        if not (IMAGES_DIR / uid).is_dir() or not any((IMAGES_DIR / uid).glob("*.dcm"))
+    ]
     if len(labels) != NUM_STUDIES or missing:
         raise RuntimeError(f"RSNA Spine: {len(labels)} labelled, {len(missing)} without images")
     logger.info(f"RSNA Spine: {len(labels)} studies OK")
-
-
-def build_zip_index(archive: zipfile.ZipFile) -> dict[str, list[str]]:
-    """StudyInstanceUID -> its ``train_images/<uid>/*.dcm`` members."""
-    index: dict[str, list[str]] = {}
-    for name in archive.namelist():
-        parts = name.split("/")
-        if len(parts) == 3 and parts[0] == "train_images" and parts[2].endswith(".dcm"):
-            index.setdefault(parts[1], []).append(name)
-    return index
-
-
-@cache
-def zip_index() -> dict[str, list[str]]:
-    """Cached on disk: listing the ~700k members of the archive takes a while."""
-    if INDEX_PATH.exists():
-        return json.loads(INDEX_PATH.read_text())
-    with zipfile.ZipFile(ZIP_PATH) as archive:
-        index = build_zip_index(archive)
-    INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
-    INDEX_PATH.write_text(json.dumps(index))
-    return index
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.touch()
 
 
 @cache
 def load_train_csv() -> pd.DataFrame:
-    with zipfile.ZipFile(ZIP_PATH) as archive:
-        return pd.read_csv(io.BytesIO(archive.read("train.csv")))
+    return pd.read_csv(TRAIN_CSV)
 
 
 def fracture_labels(table: pd.DataFrame) -> pd.DataFrame:
@@ -111,24 +92,21 @@ def read_dicom_series(folder: Path) -> sitk.Image:
 
 
 def nifti_path(case_id: str) -> Path:
-    """Convert one study from the zip to NIfTI (cached)."""
+    """Convert one study to NIfTI in HU, clamped below at air (cached).
+
+    About 22% of each scan lies outside the reconstruction circle and is stored as
+    -2048, -3024 or -3669 depending on the scanner. Left in, it drags the whole-scan
+    z-score (e.g. mean -46 -> -688 HU, std 389 -> 1273) in a scanner-dependent way, so it
+    is set to ``CT_PAD_VALUE`` (-1024), the value used outside the field of view (D19).
+    """
     out = NIFTI_DIR / f"{case_id}.nii.gz"
-    if out.exists():
-        return out
-    tmp_dir = INTERIM_DIR / f".partial.{case_id}"
-    shutil.rmtree(tmp_dir, ignore_errors=True)
-    tmp_dir.mkdir(parents=True)
-    try:
-        with zipfile.ZipFile(ZIP_PATH) as archive:
-            for member in zip_index()[case_id]:
-                (tmp_dir / Path(member).name).write_bytes(archive.read(member))
-        image = sitk.Cast(read_dicom_series(tmp_dir), sitk.sitkInt16)
+    if not out.exists():
+        image = sitk.Cast(read_dicom_series(IMAGES_DIR / case_id), sitk.sitkInt16)
+        image = sitk.Clamp(image, lowerBound=CT_PAD_VALUE, upperBound=32767)
         NIFTI_DIR.mkdir(parents=True, exist_ok=True)
-        tmp_out = out.with_name(f".partial.{out.name}")
-        sitk.WriteImage(image, tmp_out, True)
-        tmp_out.rename(out)
-    finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        tmp = out.with_name(f".partial.{out.name}")
+        sitk.WriteImage(image, tmp, True)
+        tmp.rename(out)
     return out
 
 

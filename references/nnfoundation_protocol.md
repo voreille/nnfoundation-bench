@@ -122,3 +122,5 @@ datasets" matches the 8 test rows; RSNA Spine and MRNet were used only for devel
 - Data: RSNA 2022 Cervical Spine Fracture Detection, 2019 training CT studies, read from
   the Kaggle zip and cached as NIfTI (D17).
 - Crop centred on C1-C7 (TotalSegmentator, union). Label (ASSUMPTION): `patient_overall`.
+- Deviation: CT below -1024 HU (scanner padding outside the reconstruction circle, ~22% of
+  each scan) is clamped to -1024 before the z-score (D19).

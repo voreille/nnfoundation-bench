@@ -257,3 +257,24 @@ Applies to every TotalSegmentator ROI: KiTS liver, STOIC lungs, RSNA C1-C7.
   STOIC's 2000 cases) and only dropping the gzip (saves ~9 s of ~50 s).
 - **Open:** the model is reloaded for every case (most of the remaining ~18 s). Keeping it
   loaded, or segmenting several cases in parallel, would be the next speed-up.
+
+## D19. RSNA Spine: read the unpacked folders, clamp CT below -1024 HU (active, 2026-11-13)
+Supersedes the zip-reading part of D17; the rest of D17 stands.
+- **Fact:** the archive was unpacked on the NAS (`train.csv`, `train_images/<uid>/*.dcm`,
+  2019 studies) and the zip removed. On 3 studies checked: slices are sorted correctly (C1
+  above C7 after conversion), spacing 0.25-0.44 mm in-plane and 0.4-0.8 mm between slices.
+  About 22% of every scan lies outside the reconstruction circle and is stored as -2048,
+  -3024 or -3669, depending on the scanner.
+- **Choice:**
+  - Read each study's folder directly. The zip index and temporary extraction are gone.
+  - At conversion, clamp values below -1024 HU to -1024 (air, and `CT_PAD_VALUE`, the value
+    we already use outside the field of view).
+- **Why:** the padding is not tissue but enters the whole-scan z-score (D3). On one study the
+  mean goes from -46 to -688 HU and the std from 389 to 1273. Because the padding value
+  depends on the scanner, normalisation would too, which a model can pick up as a
+  confound. After clamping: mean -257, std 530. STOIC (minimum -1024) and KiTS already
+  look like this.
+- **Rejected:** a mask-based z-score that leaves out padding. It departs from the
+  `adaptation_plan.json` normalisation (no mask), and clamping gives the same effect with
+  values the model saw in pretraining.
+- **Open:** values above 3071 HU (metal, e.g. 10880 in one study) are left as they are.

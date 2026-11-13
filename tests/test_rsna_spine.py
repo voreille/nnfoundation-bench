@@ -1,12 +1,9 @@
-import zipfile
-
 import numpy as np
 import pandas as pd
 import SimpleITK as sitk
 
 from nnfoundation_bench.datasets import get_task
 from nnfoundation_bench.datasets.rsna_spine import (
-    build_zip_index,
     fracture_labels,
     read_dicom_series,
 )
@@ -20,21 +17,6 @@ def test_fracture_label_is_patient_overall():
     assert fracture_labels(table).to_dict("list") == {
         "case_id": ["1.2.3", "1.2.4"],
         "label": [1, 0],
-    }
-
-
-def test_zip_index_groups_train_slices_by_study(tmp_path):
-    path = tmp_path / "a.zip"
-    with zipfile.ZipFile(path, "w") as archive:
-        for name in ("train.csv", "train_images/1.2.3/1.dcm", "train_images/1.2.3/2.dcm",
-                     "train_images/1.2.4/1.dcm", "test_images/9/1.dcm",
-                     "segmentations/1.2.3.nii"):  # fmt: skip
-            archive.writestr(name, b"")
-    with zipfile.ZipFile(path) as archive:
-        index = build_zip_index(archive)
-    assert {k: sorted(v) for k, v in index.items()} == {
-        "1.2.3": ["train_images/1.2.3/1.dcm", "train_images/1.2.3/2.dcm"],
-        "1.2.4": ["train_images/1.2.4/1.dcm"],
     }
 
 
