@@ -181,9 +181,11 @@ def fit_probe(
 ) -> tuple[np.ndarray, float, float]:
     """Logistic regression on train, C picked by val AUROC. Returns test scores, C, val AUROC.
 
-    Features are standardised with train statistics. The model is fitted on train only
+    Missing values (NaN, e.g. a radiomics feature on an empty ROI) get the train median;
+    features are then standardised with train statistics. The model is fitted on train only
     (val is used for selection), like glovita's best-checkpoint selection.
     """
+    from sklearn.impute import SimpleImputer
     from sklearn.linear_model import LogisticRegression
     from sklearn.metrics import roc_auc_score
     from sklearn.pipeline import make_pipeline
@@ -193,6 +195,7 @@ def fit_probe(
     best = (-np.inf, None, None)
     for c in cs:
         clf = make_pipeline(
+            SimpleImputer(strategy="median", keep_empty_features=True),
             StandardScaler(),
             LogisticRegression(C=c, class_weight="balanced", max_iter=5000),
         )
@@ -205,6 +208,39 @@ def fit_probe(
     return clf.predict_proba(x[te])[:, 1], c, float(val_auc)
 
 
+def task_labels(task: str) -> tuple[list[str], np.ndarray, list[dict]]:
+    """Sorted case IDs, their labels and the splits of a prepared task."""
+    root = PROCESSED_DATA_DIR / task
+    labels = json.loads((root / "labels.json").read_text())
+    splits = json.loads((root / "splits.json").read_text())
+    cases = sorted(labels)
+    return cases, np.array([labels[c] for c in cases]), splits
+
+
+def probe_folds(task: str, run: str, x: np.ndarray) -> list[float]:
+    """Fit ``fit_probe`` on every fold; ``x`` rows follow ``task_labels`` order.
+
+    Writes ``reports/results/<task>/<run>/fold<k>/`` (metrics.json, predictions.csv) like
+    fine-tuned runs and returns the test AUROC per fold.
+    """
+    cases, y, splits = task_labels(task)
+    index = {c: i for i, c in enumerate(cases)}
+    aucs = []
+    for fold, split in enumerate(splits):
+        idx = {k: np.array([index[c] for c in v]) for k, v in split.items()}
+        scores, c, val_auc = fit_probe(x, y, idx)
+        test = pd.DataFrame({"case_id": split["test"], "label": y[idx["test"]], "score": scores})
+        out_dir = results_dir(task, run, fold)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        test.to_csv(out_dir / "predictions.csv", index=False)
+        metrics = {"task": task, "run": run, "fold": fold, "probe_C": c, "val_auroc": val_auc}
+        metrics |= binary_metrics(test["label"].to_numpy(), test["score"].to_numpy())
+        (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
+        aucs.append(metrics["auroc"])
+    logger.info(f"{run}: test AUROC {np.nanmean(aucs):.4f} ± {np.nanstd(aucs, ddof=1):.4f}")
+    return aucs
+
+
 @app.command()
 def probe(
     task: str,
@@ -214,31 +250,9 @@ def probe(
     ] = None,
 ) -> None:
     """Linear probe on frozen features, every fold; writes reports/results/TASK/<run>/."""
-    root = PROCESSED_DATA_DIR / task
-    labels = json.loads((root / "labels.json").read_text())
-    splits = json.loads((root / "splits.json").read_text())
-    cases = sorted(labels)
-    index = {c: i for i, c in enumerate(cases)}
-    y = np.array([labels[c] for c in cases])
-
+    cases, _, _ = task_labels(task)
     for pool in pooling or POOLINGS:
-        x = load_pooled(task, model, pool, cases)
-        run = probe_run_name(model, pool)
-        aucs = []
-        for fold, split in enumerate(splits):
-            idx = {k: np.array([index[c] for c in v]) for k, v in split.items()}
-            scores, c, val_auc = fit_probe(x, y, idx)
-            test = pd.DataFrame(
-                {"case_id": split["test"], "label": y[idx["test"]], "score": scores}
-            )
-            out_dir = results_dir(task, run, fold)
-            out_dir.mkdir(parents=True, exist_ok=True)
-            test.to_csv(out_dir / "predictions.csv", index=False)
-            metrics = {"task": task, "run": run, "fold": fold, "probe_C": c, "val_auroc": val_auc}
-            metrics |= binary_metrics(test["label"].to_numpy(), test["score"].to_numpy())
-            (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
-            aucs.append(metrics["auroc"])
-        logger.info(f"{run}: test AUROC {np.nanmean(aucs):.4f} ± {np.nanstd(aucs, ddof=1):.4f}")
+        probe_folds(task, probe_run_name(model, pool), load_pooled(task, model, pool, cases))
 
 
 if __name__ == "__main__":

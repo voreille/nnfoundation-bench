@@ -144,6 +144,9 @@ DESIGN_RUNS = {
     "F3": lambda m: f"{m}_frozen_roi_margin_mean_logreg",
     "T1": lambda m: run_name(m),
     "T1-last": lambda m: eval_run_name(run_name(m), "last"),
+    # Model-independent rows (one value per cell): handcrafted radiomics baselines.
+    "R1": "radiomics_original_logreg",
+    "R2": "radiomics_filtered_logreg",
 }
 
 
@@ -162,10 +165,14 @@ def auroc_summary(task: str) -> pd.Series:
 
 
 def design_table(summaries: dict[str, pd.Series], models: tuple[str, ...] = ("cnn", "vit")) -> str:
-    """Markdown grid: one row per design, one column per task, cells ``CNN / ViT``."""
+    """Markdown grid: one row per design, one column per task, cells ``CNN / ViT``
+    (one value for model-independent rows such as radiomics)."""
     lines = ["| ID | " + " | ".join(summaries) + " |", "|----|" + "---|" * len(summaries)]
     for design, run in DESIGN_RUNS.items():
-        cells = [" / ".join(s.get(run(m), "-") for m in models) for s in summaries.values()]
+        if isinstance(run, str):
+            cells = [s.get(run, "-") for s in summaries.values()]
+        else:
+            cells = [" / ".join(s.get(run(m), "-") for m in models) for s in summaries.values()]
         lines.append(f"| {design} | " + " | ".join(cells) + " |")
     cells = [s.get("group_prior", "n/a") for s in summaries.values()]
     lines.append("| ref | " + " | ".join(cells) + " |")

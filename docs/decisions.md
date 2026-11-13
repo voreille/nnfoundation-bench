@@ -293,3 +293,37 @@ Supersedes the zip-reading part of D17; the rest of D17 stands.
   The `checkpoint` field in metrics.json was the only trace, and `summarize` mixed them.
 - **Open:** if `last` is as good as `best` on small datasets, the val cases could go back
   into train there. That ties in with repeated k-fold for small datasets (not decided).
+
+## D21. Radiomics baseline: pyradiomics in the ROI, same probe and splits (active, 2026-11-13)
+- **Choice:** `nnfb-radiomics extract <task> --features original|filtered`, then `probe`.
+  - Input: the QC crops of `prepare` (`data/interim/<task>/{images,masks}/`), 1 mm
+    isotropic, physical units, and the same ROI mask as the embedding poolings (F2).
+    No resampling in pyradiomics.
+  - Discretisation per modality: CT bin width 25 HU, PET 0.5 SUV, MR 32 bins (MR has no
+    physical unit, and MRNet and LLD-MMRI are rescaled to 0-255 per series).
+  - All feature classes (shape, first order, GLCM, GLRLM, GLSZM, GLDM, NGTDM).
+    `original` = original image (107 features); `filtered` = plus LoG sigma 1 and 3 mm
+    and the 8 wavelet decompositions (1037).
+  - Classifier: the frozen-feature probe of D13 (median imputation, standardisation, L2
+    logistic regression, balanced classes, C by val AUROC), same splits.
+    Runs `radiomics_<features>_logreg`; design rows R1 and R2.
+  - Features are cached per case as JSON under `data/processed/<task>/radiomics/<set>/`.
+    Empty ROIs give no features and are imputed; inf is treated as missing.
+- **Why:** a handcrafted reference tells whether the foundation-model embeddings beat what
+  the ROI-based pipeline can already do. Sharing crop, mask, probe and splits makes the
+  rows directly comparable.
+- **Rejected:**
+  - Extracting from the native-resolution images: per-dataset resampling choices, and the
+    ROI would no longer match the embedding poolings.
+  - Feature selection or a random forest: a different classifier would mix up the
+    feature comparison with a model comparison. Can be added as another row.
+- **Dependency:** pyradiomics is installed from GitHub tag `v3.1.0` (commit `6a761c4`), because
+  the PyPI 3.1.0 sdist lacks `cmatrices.h` and does not build on Python 3.12. It works with
+  NumPy 2.5.4. With NumPy 2, five shape features (Elongation, Flatness, the axis lengths)
+  come back complex with a zero imaginary part. We keep the real part and raise if the
+  imaginary part is not zero.
+- **Open:**
+  - Crops cut ROIs larger than 192 mm (STOIC lungs), so shape features there describe the
+    truncated ROI.
+  - TotalSegmentator masks are 3 mm (D18), which coarsens shape features.
+  - The bin widths are common defaults, not tuned.

@@ -70,6 +70,8 @@ still to write; **done** = results filled in. n/a = the design does not apply.
 | F4 | Pooling (frozen) | ROI mean over earlier CNN stages (16 mm, 8 mm cells); ViT n/a | | | | | | planned |
 | T1 | Adaptation | glovita full fine-tuning, paper recipe (D1) | `cnn_lr0.0003`, `vit_lr0.0001` | | | | | ready |
 | T1-last | Adaptation | Same runs as T1, evaluated at the last checkpoint (end of the cosine schedule) instead of the best val AUROC (D20) | `cnn_lr0.0003_last`, `vit_lr0.0001_last` | | | | | ready |
+| R1 | Baseline (handcrafted) | pyradiomics in the ROI, original image (107 features), same probe and splits (D21); one value per cell | `radiomics_original_logreg` | 0.744 ± 0.053 | | | | HECKTOR done |
+| R2 | Baseline (handcrafted) | Same as R1, plus LoG (1, 3 mm) and wavelet images (1037 features) | `radiomics_filtered_logreg` | 0.786 ± 0.008 | | | | HECKTOR done |
 | S1 | Input size | Fixed 192³ at 1 mm (current preprocessing; same as F1-F3) | see F1-F3 | | | | | ready |
 | S2 | Input size | Native 1 mm, input size = FOV; ViT absolute position embedding interpolated (glovita default) | | | | | | planned |
 | S3 | Input size | Same as S2, but the ViT absolute position embedding is cut out (FOV < 192) instead of interpolated, consistent with RoPE; CNN n/a | | | | | | planned |
@@ -116,7 +118,9 @@ Test AUROC, mean ± std over the 5 repeated 40/10/50 splits unless noted.
 | Run | AUROC | Notes |
 |-----|-------|-------|
 | `group_prior` (centre only) | 0.839 ± 0.011 | reference, no image; see D9 in decisions.md |
-| `vit_frozen_mean_logreg` (F1) | 0.765 ± 0.047 | best image-only run so far, still below the centre alone |
+| `radiomics_filtered_logreg` (R2) | 0.786 ± 0.008 | best image-only run so far, still below the centre alone |
+| `vit_frozen_mean_logreg` (F1) | 0.765 ± 0.047 | best embedding run |
+| `radiomics_original_logreg` (R1) | 0.744 ± 0.053 | |
 | `vit_frozen_roi_margin_mean_logreg` (F3) | 0.742 ± 0.015 | |
 | `vit_frozen_roi_mean_logreg` (F2) | 0.710 ± 0.058 | |
 | `cnn_frozen_mean_logreg` (F1) | 0.514 ± 0.061 | chance level, see below |
@@ -132,6 +136,10 @@ chosen on 10 val cases, tested on 51. Small, so expect noise.
 - **ROI pooling does not help yet**: whole crop ≥ ROI + 10 mm ≥ ROI, for both models. With a
   GTVp of a few cm, the ROI covers few cells; the context around the tumour seems to carry
   signal (or centre information, D9).
+- **Handcrafted radiomics (D21) is on par with or better than the frozen ViT.** R2 (filtered,
+  1037 features) beats every embedding probe; R1 (107 features in the ROI) matches the ViT's
+  ROI pooling (0.744 vs 0.710-0.742). Both look at the GTVp only, so the ViT's advantage of
+  whole-crop over ROI pooling is not just "more tissue".
 - Nothing beats `group_prior` (0.84). Image features may partly encode the centre too; the
   leave-one-centre-out evaluation (E1) is needed to tell.
 
@@ -202,3 +210,7 @@ None yet.
 - `nnfb-predict predict --checkpoint last` now writes to `<run>_last`, so it no longer
   overwrites the best-checkpoint results. `run_benchmark.sh` evaluates both, and the
   table has a T1-last row (D20).
+- Added the radiomics baseline `nnfb-radiomics` (pyradiomics in the ROI of the 1 mm QC
+  crops, same probe and splits as the embeddings, D21). HECKTOR: R1 0.744, R2 0.786, so
+  the best image-only result is handcrafted. pyradiomics comes from its GitHub tag v3.1.0,
+  because the PyPI 3.1.0 sdist does not build on Python 3.12.

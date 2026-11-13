@@ -16,6 +16,7 @@ dependencies = [
     "numpy",
     "okapy",
     "pandas",
+    "pyradiomics",
     "requests",
     "scikit-learn",
     "simpleitk>=2.3",
@@ -35,6 +36,7 @@ torch = [{ index = "pytorch-cu128" }]
 torchvision = [{ index = "pytorch-cu128" }]
 glovita = { git = "https://github.com/MIC-DKFZ/image_classification", rev = "025e5942f5b6471889e5b8d1e6355ab4a331e402" }
 okapy = { path = "../okapy", editable = true }
+pyradiomics = { git = "https://github.com/AIM-Harvard/pyradiomics", rev = "v3.1.0" }
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
@@ -46,6 +48,7 @@ nnfb-data = "nnfoundation_bench.dataset:app"
 nnfb-train = "nnfoundation_bench.modeling.train:app"
 nnfb-predict = "nnfoundation_bench.modeling.predict:app"
 nnfb-features = "nnfoundation_bench.modeling.features:app"
+nnfb-radiomics = "nnfoundation_bench.modeling.radiomics_baseline:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["nnfoundation_bench"]

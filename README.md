@@ -19,6 +19,8 @@ uv run nnfb-predict predict kits_liver --model cnn --fold 0
 uv run nnfb-features extract kits_liver --model cnn       # frozen encoder, pooled features
 uv run nnfb-features probe kits_liver --model cnn         # logistic-regression probe per pooling
 uv run nnfb-predict summarize kits_liver                  # mean/std test AUROC over folds
+uv run nnfb-radiomics extract kits_liver                  # pyradiomics baseline in the ROI
+uv run nnfb-radiomics probe kits_liver
 uv run nnfb-predict table                                 # design grid over all tasks (CNN / ViT)
 uv run pytest && uv run ruff check && uv run ruff format --check
 ```

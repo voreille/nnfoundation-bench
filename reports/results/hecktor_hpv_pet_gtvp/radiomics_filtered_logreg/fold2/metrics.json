@@ -1,0 +1,11 @@
+{
+  "task": "hecktor_hpv_pet_gtvp",
+  "run": "radiomics_filtered_logreg",
+  "fold": 2,
+  "probe_C": 0.001,
+  "val_auroc": 0.9333333333333333,
+  "auroc": 0.7815384615384615,
+  "ap": 0.7359224761188234,
+  "n": 51,
+  "n_positive": 25
+}
