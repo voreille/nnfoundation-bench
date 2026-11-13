@@ -12,6 +12,17 @@ def run_name(model: str, lr: float | None = None, scratch: bool = False, tag: st
     return f"{name}_{tag}" if tag else name
 
 
+CHECKPOINTS = ("best", "last")
+
+
+def eval_run_name(run: str, checkpoint: str = "best") -> str:
+    """Results name of a run evaluated at ``checkpoint``: ``best`` keeps ``run``,
+    ``last`` gives ``<run>_last``, so both can sit side by side in reports/results."""
+    if checkpoint not in CHECKPOINTS:
+        raise ValueError(f"checkpoint must be one of {CHECKPOINTS}, got {checkpoint!r}")
+    return run if checkpoint == "best" else f"{run}_{checkpoint}"
+
+
 def experiment_dir(task: str) -> Path:
     """glovita ``--exp_dir``; runs land in ``<exp_dir>/generic_3d_dataset/<run>/<fold>/``."""
     return FINETUNED_DIR / task

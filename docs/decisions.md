@@ -278,3 +278,18 @@ Supersedes the zip-reading part of D17; the rest of D17 stands.
   `adaptation_plan.json` normalisation (no mask), and clamping gives the same effect with
   values the model saw in pretraining.
 - **Open:** values above 3071 HU (metal, e.g. 10880 in one study) are left as they are.
+
+## D20. Evaluate fine-tuned runs at both the best-val and the last checkpoint (active, 2026-11-13)
+- **Fact:** glovita keeps `best.pt` (highest val AUROC over the 100 epochs) and `last.pt`.
+  The val split is used only for that selection, never for training. On HECKTOR it holds
+  10 cases (about 5 positives). Its AUROC moves in large steps and many epochs tie, so the
+  "best" epoch is close to a random pick and optimistic on val.
+- **Choice:** `nnfb-predict predict` evaluates `best` (default, results in `<run>/`) or
+  `last` (results in `<run>_last/`). `run_benchmark.sh` runs both after each training
+  run; inference is cheap next to training. Design table rows: T1 (best) and T1-last.
+- **Why:** compares the paper's selection by val with no selection (the fixed schedule
+  ends at LR 0), on small and large datasets.
+- **Rejected:** overwriting one result folder with whichever checkpoint was evaluated last.
+  The `checkpoint` field in metrics.json was the only trace, and `summarize` mixed them.
+- **Open:** if `last` is as good as `best` on small datasets, the val cases could go back
+  into train there. That ties in with repeated k-fold for small datasets (not decided).

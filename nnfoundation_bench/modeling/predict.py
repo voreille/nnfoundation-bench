@@ -13,7 +13,7 @@ from loguru import logger
 from sklearn.metrics import average_precision_score, roc_auc_score
 
 from nnfoundation_bench.config import PROCESSED_DATA_DIR, RESULTS_DIR
-from nnfoundation_bench.modeling.runs import results_dir, run_dir, run_name
+from nnfoundation_bench.modeling.runs import eval_run_name, results_dir, run_dir, run_name
 from nnfoundation_bench.weights import MODELS
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
@@ -52,12 +52,21 @@ def predict(
     lr: float | None = typer.Option(None, help="LR of the run (default: paper value)"),
     scratch: bool = typer.Option(False),
     tag: str = typer.Option(""),
-    checkpoint: str = typer.Option("best", help="best or last"),
+    checkpoint: str = typer.Option(
+        "best",
+        help="best (by val AUROC) or last (end of the schedule); last goes to <run>_last",
+    ),
     num_workers: int = typer.Option(8),
 ) -> None:
-    """Run the best checkpoint of a run on the fold's test split and compute AUROC."""
+    """Run a checkpoint of a run on the fold's test split and compute AUROC.
+
+    Results go to ``reports/results/<task>/<run>/`` for ``best`` and
+    ``<run>_last/`` for ``last``, so evaluating one never overwrites the other.
+    """
     run = run_name(model, lr, scratch, tag)
-    out_dir = results_dir(task, run, fold)
+    result_run = eval_run_name(run, checkpoint)
+    out_dir = results_dir(task, result_run, fold)
+    out_dir.mkdir(parents=True, exist_ok=True)
     pred_path = out_dir / "predictions.pt"
     cmd = [
         sys.executable, "-m", "glovita.cli.infer",
@@ -75,10 +84,10 @@ def predict(
 
     cases = evaluate_predictions(pred_path)
     cases.to_csv(out_dir / "predictions.csv", index=False)
-    metrics = {"task": task, "run": run, "fold": fold, "checkpoint": checkpoint}
+    metrics = {"task": task, "run": result_run, "fold": fold, "checkpoint": checkpoint}
     metrics |= binary_metrics(cases["label"].to_numpy(), cases["score"].to_numpy())
     (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
-    logger.success(f"{task} {run} fold {fold}: AUROC {metrics['auroc']:.4f}")
+    logger.success(f"{task} {result_run} fold {fold}: AUROC {metrics['auroc']:.4f}")
 
 
 def group_prior_scores(labels: pd.DataFrame, split: dict[str, list[str]]) -> pd.DataFrame:
@@ -134,6 +143,7 @@ DESIGN_RUNS = {
     "F2": lambda m: f"{m}_frozen_roi_mean_logreg",
     "F3": lambda m: f"{m}_frozen_roi_margin_mean_logreg",
     "T1": lambda m: run_name(m),
+    "T1-last": lambda m: eval_run_name(run_name(m), "last"),
 }
 
 

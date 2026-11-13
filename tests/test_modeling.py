@@ -71,3 +71,14 @@ def test_design_table_cells_are_cnn_slash_vit():
     assert "| F1 | 0.51 ± 0.06 / 0.77 ± 0.05 |" in lines
     assert "| F2 | - / - |" in lines
     assert lines[-1] == "| ref | 0.84 ± 0.01 |"
+
+
+def test_last_checkpoint_gets_its_own_results_name():
+    import pytest
+
+    from nnfoundation_bench.modeling.runs import eval_run_name
+
+    assert eval_run_name("vit_lr0.0001") == "vit_lr0.0001"
+    assert eval_run_name("vit_lr0.0001", "last") == "vit_lr0.0001_last"
+    with pytest.raises(ValueError):
+        eval_run_name("vit_lr0.0001", "epoch3")

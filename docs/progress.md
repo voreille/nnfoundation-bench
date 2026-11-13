@@ -69,6 +69,7 @@ still to write; **done** = results filled in. n/a = the design does not apply.
 | F3 | Pooling (frozen) | Mean over the ROI + 10 mm | `<m>_frozen_roi_margin_mean_logreg` | 0.498 ± 0.050 / 0.742 ± 0.015 | n/a | | | HECKTOR done; STOIC ready |
 | F4 | Pooling (frozen) | ROI mean over earlier CNN stages (16 mm, 8 mm cells); ViT n/a | | | | | | planned |
 | T1 | Adaptation | glovita full fine-tuning, paper recipe (D1) | `cnn_lr0.0003`, `vit_lr0.0001` | | | | | ready |
+| T1-last | Adaptation | Same runs as T1, evaluated at the last checkpoint (end of the cosine schedule) instead of the best val AUROC (D20) | `cnn_lr0.0003_last`, `vit_lr0.0001_last` | | | | | ready |
 | S1 | Input size | Fixed 192³ at 1 mm (current preprocessing; same as F1-F3) | see F1-F3 | | | | | ready |
 | S2 | Input size | Native 1 mm, input size = FOV; ViT absolute position embedding interpolated (glovita default) | | | | | | planned |
 | S3 | Input size | Same as S2, but the ViT absolute position embedding is cut out (FOV < 192) instead of interpolated, consistent with RoPE; CNN n/a | | | | | | planned |
@@ -198,3 +199,6 @@ None yet.
   `nnfb-predict table`, which prints the design grid from all results. ViT 0.71-0.77,
   CNN at chance; all below the centre-only 0.84. Added a STOIC severe column to the design
   table. Fixed the CLI name: `pyproject.toml` declared `nfb-features`, now `nnfb-features`.
+- `nnfb-predict predict --checkpoint last` now writes to `<run>_last`, so it no longer
+  overwrites the best-checkpoint results. `run_benchmark.sh` evaluates both, and the
+  table has a T1-last row (D20).

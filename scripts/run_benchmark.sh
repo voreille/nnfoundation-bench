@@ -12,6 +12,9 @@
 #   NUM_WORKERS=8         DataLoader workers (needs a large /dev/shm)
 #   EXTRA_TRAIN_ARGS=""   passed through to nnfb-train, e.g. "--epochs 20"
 #
+# Each trained run is evaluated twice: best val-AUROC checkpoint -> <run>, last
+# checkpoint -> <run>_last.
+#
 # Safe to rerun: download/prepare skip finished files, and a run whose
 # reports/results/<task>/<run>/fold<k>/metrics.json exists is skipped. An
 # interrupted training run restarts from scratch.
@@ -56,8 +59,13 @@ print(run_name('$model', scratch=bool($scratch)))")
   # shellcheck disable=SC2086
   uv run nnfb-train "$TASK" --model "$model" --fold "$fold" --gpus "$gpu" $flag \
     --num-workers "$NUM_WORKERS" $EXTRA_TRAIN_ARGS >> "$LOG_DIR/${run}_fold$fold.log" 2>&1
-  CUDA_VISIBLE_DEVICES=$gpu uv run nnfb-predict predict "$TASK" --model "$model" \
-    --fold "$fold" $flag --num-workers "$NUM_WORKERS" >> "$LOG_DIR/${run}_fold$fold.log" 2>&1
+  # Evaluate both the best-val checkpoint (<run>) and the last one (<run>_last).
+  for ckpt in best last; do
+    # shellcheck disable=SC2086
+    CUDA_VISIBLE_DEVICES=$gpu uv run nnfb-predict predict "$TASK" --model "$model" \
+      --fold "$fold" $flag --checkpoint "$ckpt" --num-workers "$NUM_WORKERS" \
+      >> "$LOG_DIR/${run}_fold$fold.log" 2>&1
+  done
   echo "[gpu $gpu] done $run fold $fold"
 }
 
