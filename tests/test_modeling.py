@@ -82,3 +82,32 @@ def test_last_checkpoint_gets_its_own_results_name():
     assert eval_run_name("vit_lr0.0001", "last") == "vit_lr0.0001_last"
     with pytest.raises(ValueError):
         eval_run_name("vit_lr0.0001", "epoch3")
+
+
+def test_update_generated_rewrites_only_marked_blocks():
+    from nnfoundation_bench.modeling.predict import update_generated
+
+    text = (
+        "intro\n<!-- generated: runs t -->\nstale\n<!-- end generated -->\n"
+        "kept\n<!-- generated: design -->\n<!-- end generated -->\n"
+    )
+    out = update_generated(text, render=lambda spec: f"[{spec}]")
+    assert out == (
+        "intro\n<!-- generated: runs t -->\n[runs t]\n<!-- end generated -->\n"
+        "kept\n<!-- generated: design -->\n[design]\n<!-- end generated -->\n"
+    )
+
+
+def test_runs_table_sorted_with_design_ids():
+    import pandas as pd
+
+    from nnfoundation_bench.modeling.predict import runs_table
+
+    stats = pd.DataFrame(
+        {"mean": [0.6, 0.8, 0.7], "std": [0.01, 0.02, 0.03], "count": [5, 5, 3]},
+        index=["cnn_frozen_mean_logreg", "group_prior", "other_run"],
+    )
+    lines = runs_table(stats).splitlines()
+    assert lines[2] == "| `group_prior` | ref | 0.800 ± 0.020 |"
+    assert lines[3] == "| `other_run` |  | 0.700 ± 0.030 (n=3) |"
+    assert lines[4] == "| `cnn_frozen_mean_logreg` | F1 | 0.600 ± 0.010 |"

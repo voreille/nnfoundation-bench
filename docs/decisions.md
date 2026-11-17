@@ -355,3 +355,20 @@ Extends D21; R1/R2 (no selection, L2) keep their meaning.
 - **Open:** the thresholds (0.9) and the L1 grid are common defaults, not tuned. Val
   selection on 10 cases is noisy (C ranges from 1e-4 to 10 across folds). Repeated k-fold
   for small datasets would help all probe rows.
+
+## D23. Results in `outputs/`, result tables generated from them (active, 2026-11-17)
+Supersedes the results location in D13 (`reports/results/`) and the versioning of
+`metrics.json` / `predictions.csv` in git.
+- **Choice:**
+  - Machine outputs go to `outputs/` (git-ignored): `outputs/results/<task>/<run>/fold<k>/`
+    and `outputs/logs/<task>/`. `reports/` holds only what people read (figures).
+  - Result tables in `docs/progress.md` are generated blocks
+    (`<!-- generated: design -->`, `<!-- generated: runs <task> -->`), rebuilt by
+    `uv run nnfb-predict table --update docs/progress.md`. The design catalogue keeps
+    the hand-written descriptions; the results grid next to it is generated.
+- **Why:** tables typed from memory drift from the results (e.g. the R3 std, 0.018 vs
+  0.017). Per-fold predictions are outputs to regenerate, not documents to version;
+  `reports/` should be readable by people.
+- **Rejected:** keeping results in git for history: the generated tables in the docs
+  carry the numbers that matter, and git history of the docs keeps them.
+- **Open:** results now exist on one disk only; back up `outputs/` if it matters.

@@ -5,7 +5,7 @@ the QC crops written by ``prepare`` (``data/interim/<task>/{images,masks}/``): 1
 isotropic, physical units (HU / SUV / MR), and the same ROI mask the embedding poolings
 use, so radiomics and the frozen-encoder probes see the same voxels. ``probe`` fits the
 same logistic-regression probe as ``nnfb-features probe``, on the same splits, and
-writes ``reports/results/<task>/radiomics_<features>[_corr<thr>]_<logreg|enet>/``.
+writes ``outputs/results/<task>/radiomics_<features>[_corr<thr>]_<logreg|enet>/``.
 Radiomics features are highly redundant, so ``probe`` can drop correlated features per
 fold (``--corr-threshold``) and/or use an elastic net (``--classifier enet``).
 """

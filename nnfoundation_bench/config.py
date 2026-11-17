@@ -19,9 +19,12 @@ EXTERNAL_DATA_DIR = DATA_DIR / "external"
 MODELS_DIR = PROJ_ROOT / "models"
 PRETRAINED_DIR = MODELS_DIR / "pretrained"
 FINETUNED_DIR = MODELS_DIR / "finetuned"
+# reports/ holds what people read (figures); machine outputs (results, logs) go to outputs/,
+# which is not versioned.
 REPORTS_DIR = PROJ_ROOT / "reports"
 FIGURES_DIR = REPORTS_DIR / "figures"
-RESULTS_DIR = REPORTS_DIR / "results"
+OUTPUTS_DIR = PROJ_ROOT / "outputs"
+RESULTS_DIR = OUTPUTS_DIR / "results"
 
 # Third-party model weights (TotalSegmentator) live next to our own models.
 TOTALSEG_HOME_DIR = Path(os.environ.get("TOTALSEG_HOME_DIR", MODELS_DIR / "totalsegmentator"))

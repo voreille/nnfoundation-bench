@@ -39,7 +39,7 @@ scripts/run_probes.sh hecktor_hpv_pet_gtvp
 ```
 
 The scripts can be rerun safely. Downloads and preprocessing skip files that already
-exist, and runs that already have test metrics are skipped. Logs go to `reports/logs/<task>/`.
+exist, and runs that already have test metrics are skipped. Results go to `outputs/results/<task>/` and logs to `outputs/logs/<task>/` (not versioned).
 
 Training needs a large `/dev/shm` for DataLoader workers (one sample is about 28 MB).
 In a small-shm container, pass `--num-workers 0`.
@@ -76,10 +76,9 @@ the paper's classification protocol and the full list of its datasets.
 ├── models             <- pretrained/ (nnFoundation), finetuned/ (glovita runs), totalsegmentator/
 ├── notebooks          <- Exploration. Naming: `<number>-<initials>-<description>.ipynb`
 ├── references         <- Paper notes, protocol, data dictionaries
+├── outputs            <- Not versioned: results/ (per-run/fold metrics.json, predictions.csv), logs/
 ├── reports
-│   ├── figures        <- Generated figures
-│   ├── logs           <- run_benchmark.sh logs (not versioned)
-│   └── results        <- Per-run/fold metrics.json + predictions.csv, summary.csv
+│   └── figures        <- Generated figures (only what people read goes in reports/)
 ├── pyproject.toml     <- Dependencies and the nnfb-data / nnfb-train / nnfb-predict CLIs
 ├── scripts            <- run_benchmark.sh: end-to-end run for one task
 ├── tests

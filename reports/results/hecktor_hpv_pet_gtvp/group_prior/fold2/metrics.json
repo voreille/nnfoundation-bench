@@ -1,9 +1,0 @@
-{
-  "task": "hecktor_hpv_pet_gtvp",
-  "run": "group_prior",
-  "fold": 2,
-  "auroc": 0.8515384615384615,
-  "ap": 0.8234901960784314,
-  "n": 51,
-  "n_positive": 25
-}

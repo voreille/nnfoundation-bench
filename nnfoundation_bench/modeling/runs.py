@@ -17,7 +17,7 @@ CHECKPOINTS = ("best", "last")
 
 def eval_run_name(run: str, checkpoint: str = "best") -> str:
     """Results name of a run evaluated at ``checkpoint``: ``best`` keeps ``run``,
-    ``last`` gives ``<run>_last``, so both can sit side by side in reports/results."""
+    ``last`` gives ``<run>_last``, so both can sit side by side in outputs/results."""
     if checkpoint not in CHECKPOINTS:
         raise ValueError(f"checkpoint must be one of {CHECKPOINTS}, got {checkpoint!r}")
     return run if checkpoint == "best" else f"{run}_{checkpoint}"

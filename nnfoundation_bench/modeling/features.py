@@ -248,7 +248,7 @@ def probe_folds(
     """Fit ``fit_probe`` on every fold; ``x`` rows follow ``task_labels`` order.
 
     ``select(x_train) -> column indices`` (optional) picks features on each fold's train
-    cases only, e.g. ``correlation_filter``. Writes ``reports/results/<task>/<run>/
+    cases only, e.g. ``correlation_filter``. Writes ``outputs/results/<task>/<run>/
     fold<k>/`` (metrics.json, predictions.csv) like fine-tuned runs and returns the test
     AUROC per fold.
     """
@@ -287,7 +287,7 @@ def probe(
         list[str] | None, typer.Option(help="Poolings to probe (default: all)")
     ] = None,
 ) -> None:
-    """Linear probe on frozen features, every fold; writes reports/results/TASK/<run>/."""
+    """Linear probe on frozen features, every fold; writes outputs/results/TASK/<run>/."""
     cases, _, _ = task_labels(task)
     for pool in pooling or POOLINGS:
         probe_folds(task, probe_run_name(model, pool), load_pooled(task, model, pool, cases))

@@ -16,7 +16,7 @@
 # checkpoint -> <run>_last.
 #
 # Safe to rerun: download/prepare skip finished files, and a run whose
-# reports/results/<task>/<run>/fold<k>/metrics.json exists is skipped. An
+# outputs/results/<task>/<run>/fold<k>/metrics.json exists is skipped. An
 # interrupted training run restarts from scratch.
 set -euo pipefail
 
@@ -29,7 +29,7 @@ NUM_WORKERS=${NUM_WORKERS:-8}
 EXTRA_TRAIN_ARGS=${EXTRA_TRAIN_ARGS:-}
 
 cd "$(dirname "$0")/.."
-LOG_DIR=reports/logs/$TASK
+LOG_DIR=outputs/logs/$TASK
 mkdir -p "$LOG_DIR"
 read -ra GPU_LIST <<< "$GPUS"
 
@@ -51,7 +51,7 @@ run_job() {  # gpu model scratch fold
   [[ $scratch == 1 ]] && flag="--scratch"
   run=$(uv run python -c "from nnfoundation_bench.modeling.runs import run_name; \
 print(run_name('$model', scratch=bool($scratch)))")
-  if [[ -f reports/results/$TASK/$run/fold$fold/metrics.json ]]; then
+  if [[ -f outputs/results/$TASK/$run/fold$fold/metrics.json ]]; then
     echo "[gpu $gpu] skip $run fold $fold (done)"
     return
   fi

@@ -12,22 +12,22 @@ as input channels, ROI handling, and how to pool features within a ROI.
 
 **Target: HECKTOR HPV classification at AUROC ≥ 0.99.**
 
-## Current status (2026-11-12)
+## Current status (2026-11-17)
 
 | Task | Data | Pipeline | Results |
 |------|------|----------|---------|
 | `kits_liver` | 2/489 raw images downloaded | prepare, train and predict smoke-tested | none yet |
-| `hecktor_hpv_pet_gtvp` | 102 patients on the NAS, labels found | prepared: 102 cases, 52 positive, no failures | centre-only reference: AUROC 0.839 ± 0.011 |
+| `hecktor_hpv_pet_gtvp` | 102 patients on the NAS, labels found | prepared: 102 cases, 52 positive, no failures | frozen probes, radiomics and centre-only reference done |
 | `mrnet_*` (9 tasks) | 1250 public exams on the NAS; all file sizes and 40 md5s checked | npy-to-NIfTI conversion and crop smoke-tested on 2 exams per plane | none yet |
 | `lld_mmri_malignant_*` (8 phases) | 498 patients x 8 series on the NAS, all files present | crop around the dataset lesion mask smoke-tested on 2 cases x 3 phases | none yet |
-| `stoic_severe`, `stoic_covid` | 2000 scans | `stoic_severe` prepared: 2000 cases, 301 positive, no failures | none yet |
+| `stoic_severe`, `stoic_covid` | 2000 scans | both prepared: 2000 cases, no failures; `stoic_covid` links the crops, features and radiomics of `stoic_severe` | frozen probes and radiomics done for both |
 | `rsna_spine_fracture` | 2019 studies unpacked on the NAS, checked (961 positive) | conversion, slice order and C1-C7 ROI smoke-tested on 3 studies | none yet |
 
 Next steps:
-1. Frozen-feature probes (D13) on the prepared tasks (`hecktor_hpv_pet_gtvp`,
-   `stoic_severe`): `nnfb-features extract` then `probe`, for cnn and vit (designs F1-F3).
-2. Prepare on the host: the 8 `lld_mmri_malignant_<phase>` tasks, `stoic_covid` (reuses the
-   lung masks) and `rsna_spine_fracture`. Then check each `dataset.json` for failed cases.
+1. Frozen probes and radiomics are done on HECKTOR and both STOIC tasks.
+2. Prepare on the host and run `scripts/run_probes.sh`: the 8 `lld_mmri_malignant_<phase>`
+   tasks first (own lesion masks), then `rsna_spine_fracture`. Check each `dataset.json`
+   for failed cases.
 3. Fine-tuning baseline with glovita: `FOLDS=0 scripts/run_benchmark.sh hecktor_hpv_pet_gtvp`
    (design T1).
 4. Input-size designs S2-S7: add `--fov` / `--mode` to `nnfb-features extract`, then run
@@ -75,6 +75,7 @@ would trigger it. Move an item to "Next steps" when it is picked up.
   about 10x the compute of `original` (hours on STOIC's lung ROIs) and is only a baseline.
   *Trigger:* if on STOIC and LLD-MMRI it does not clearly beat `original` (R1) or the best
   embedding probe, keep R1 only and set `RADIOMICS="original"` as the script default.
+  STOIC severe: no gain (R2-R5 within noise of R1, all below the ViT). Waiting for LLD-MMRI.
 - **Radiomics filter ablation:** probe LoG and wavelet subsets separately from the cached
   features. On 1 mm-resampled PET (native ~4 mm), LoG 1 mm and the high-pass wavelets
   likely see interpolation, not texture.
@@ -82,15 +83,15 @@ would trigger it. Move an item to "Next steps" when it is picked up.
 ## Design benchmark
 
 The designs we compare for using the pretrained models in our pipeline, run on every
-dataset to get a broad view. Each cell gives test AUROC as `CNN / ViT`, each value the
-mean ± std over the 5 splits.
+dataset to get a broad view. Each cell of the results grid gives test AUROC as
+`CNN / ViT`, each value the mean ± std over the 5 splits.
 
 | Dataset (task) | Modalities | ROI | Default input | Reference |
 |---|---|---|---|---|
-| HECKTOR HPV (`hecktor_hpv_pet_gtvp`) | PET, CT (same patient, registered) | GTVp (dataset SEG) | PET, 192³ at 1 mm centred on the GTVp | centre only **0.839 ± 0.011**; target ≥ 0.99 |
+| HECKTOR HPV (`hecktor_hpv_pet_gtvp`) | PET, CT (same patient, registered) | GTVp (dataset SEG) | PET, 192³ at 1 mm centred on the GTVp | centre only: `ref` row of the grid; target ≥ 0.99 |
 | MRNet (`mrnet_abnormal_*`) | sagittal T2 FS, coronal T1, axial PD FS (separate series, no shared geometry) | field of view | sagittal, 192³ at 1 mm (whole series) | MRNet paper (all 3 planes): abnormal 0.94, ACL 0.97, meniscus 0.85 (official test set, not comparable to our splits) |
 | KiTS Liver (`kits_liver`) | CT | liver (TotalSegmentator), often larger than 192 mm | CT, 192³ at 1 mm centred on the liver | about 5 test positives per split: noisy |
-| STOIC 2021 (`stoic_severe`) | CT | lungs (TotalSegmentator, 3 mm masks, D18); wider than 192 mm | CT, 192³ at 1 mm centred on the lungs | 301/2000 severe; STOIC challenge (severe, hidden test set): about 0.8 |
+| STOIC 2021 (`stoic_severe`, `stoic_covid`) | CT | lungs (TotalSegmentator, 3 mm masks, D18); wider than 192 mm | CT, 192³ at 1 mm centred on the lungs | 301/2000 severe, 1205/2000 COVID; STOIC challenge (severe, hidden test set): about 0.8 |
 
 Unless a row says otherwise:
 - **Input:** the dataset's default input above, z-scored over the whole scan.
@@ -98,39 +99,57 @@ Unless a row says otherwise:
 - **Several modalities:** embeddings are extracted per modality, each from its own
   single-channel task, then fused late (M2-M5, D14).
 
-Cells can be regenerated with `uv run nnfb-predict table [tasks...]`.
+Status: **ready** = code exists (the grid below shows which tasks have run); **planned**
+= code still to write; **dropped** = not pursued.
 
-Status: **ready** = code exists and the run is waiting for the host; **planned** = code
-still to write; **done** = results filled in. n/a = the design does not apply.
+| ID | Axis | Design | Run name | Applies to | Status |
+|----|------|--------|----------|------------|--------|
+| F1 | Pooling (frozen) | Mean over the whole crop (what glovita's head sees) | `<m>_frozen_mean_logreg` | all | ready |
+| F2 | Pooling (frozen) | Mean over the ROI, cells weighted by ROI fraction | `<m>_frozen_roi_mean_logreg` | MRNet n/a (ROI = FOV, same as F1 up to padding) | ready |
+| F3 | Pooling (frozen) | Mean over the ROI + 10 mm | `<m>_frozen_roi_margin_mean_logreg` | MRNet n/a | ready |
+| F4 | Pooling (frozen) | ROI mean over earlier CNN stages (16 mm, 8 mm cells); ViT n/a |  | all | planned |
+| T1 | Adaptation | glovita full fine-tuning, paper recipe (D1) | `cnn_lr0.0003`, `vit_lr0.0001` | all | ready |
+| T1-last | Adaptation | Same runs as T1, evaluated at the last checkpoint (end of the cosine schedule) instead of the best val AUROC (D20) | `cnn_lr0.0003_last`, `vit_lr0.0001_last` | all | ready |
+| R1 | Baseline (handcrafted) | pyradiomics in the ROI, original image (107 features), same probe and splits (D21); one value per cell | `radiomics_original_logreg` | MRNet n/a (no ROI) | ready |
+| R2 | Baseline (handcrafted) | Same as R1, plus LoG (1, 3 mm) and wavelet images (1037 features) | `radiomics_filtered_logreg` | MRNet n/a (no ROI) | ready |
+| R3 | Baseline (handcrafted) | R2 features, redundant ones dropped per fold (Spearman \|rho\| > 0.9, fit on train; ~305 of 1037 kept), L2 probe (D22) | `radiomics_filtered_corr0.9_logreg` | MRNet n/a (no ROI) | ready |
+| R4 | Baseline (handcrafted) | R2 features, elastic-net probe (L1 share 0.1/0.5/0.9 and C chosen on val) | `radiomics_filtered_enet` | MRNet n/a (no ROI) | ready |
+| R5 | Baseline (handcrafted) | Correlation filter (R3) then elastic net (R4) | `radiomics_filtered_corr0.9_enet` | MRNet n/a (no ROI) | ready |
+| S1 | Input size | Fixed 192³ at 1 mm (current preprocessing; same as F1-F3) | see F1-F3 | all | ready |
+| S2 | Input size | Native 1 mm, input size = FOV; ViT absolute position embedding interpolated (glovita default) |  | all | planned |
+| S3 | Input size | Same as S2, but the ViT absolute position embedding is cut out (FOV < 192) instead of interpolated, consistent with RoPE; CNN n/a |  | all | planned |
+| S4 | Input size | Rescale the FOV to 192³ (spacing = FOV / 192) |  | all | planned |
+| S5 | Input size | Tiling: 192³ windows at 1 mm covering the FOV, ROI-weighted mean of features (FOV > 192) |  | MRNet n/a (knee fits in 192) | planned |
+| S6 | Input size | ROI-adaptive native: per-case FOV = ROI extent + margin, as in S2 |  | MRNet n/a | planned |
+| S7 | Input size | ROI-adaptive rescale: per-case FOV = ROI extent + margin, as in S4 |  | MRNet n/a | planned |
+| I1 | Input | Other single modality: CT (HECKTOR), coronal or axial series (MRNet) |  | KiTS, STOIC n/a (CT only) | planned |
+| I3 | Input | ROI = GTVp ∪ GTVn |  | HECKTOR only | planned |
+| M1 | Modality fusion | Early fusion: modalities as channels on one grid, stem weights repeated / n (glovita). Not planned: we extract embeddings per modality (D14) |  | all | dropped |
+| M2 | Modality fusion (late) | Feature-level: per-modality embeddings concatenated, one probe |  | HECKTOR, MRNet, LLD-MMRI | planned |
+| M3 | Modality fusion (late) | Feature-level: mean of the per-modality embeddings (one encoder, so one space), one probe |  | HECKTOR, MRNet, LLD-MMRI | planned |
+| M4 | Modality fusion (late) | Score-level: one probe per modality, scores combined by a logistic regression fitted on val (the MRNet paper's scheme) |  | HECKTOR, MRNet, LLD-MMRI | planned |
+| M5 | Modality fusion (late) | Learned attention across the per-modality embeddings or token maps (needs `--save-maps` and a small trained head) |  | HECKTOR, MRNet, LLD-MMRI | planned |
+| E1 | Evaluation | Leave-one-centre-out (removes the centre shortcut, D9) |  | HECKTOR only (other tasks: single centre or no centre released) | planned |
 
-| ID | Axis | Design | Run name | HECKTOR | MRNet | KiTS Liver | STOIC severe | Status |
-|----|------|--------|----------|---------|-------|------------|------------|--------|
-| F1 | Pooling (frozen) | Mean over the whole crop (what glovita's head sees) | `<m>_frozen_mean_logreg` | 0.514 ± 0.061 / 0.765 ± 0.047 | | | | HECKTOR done; STOIC ready |
-| F2 | Pooling (frozen) | Mean over the ROI, cells weighted by ROI fraction | `<m>_frozen_roi_mean_logreg` | 0.459 ± 0.053 / 0.710 ± 0.058 | n/a (ROI = FOV, same as F1 up to padding) | | | HECKTOR done; STOIC ready |
-| F3 | Pooling (frozen) | Mean over the ROI + 10 mm | `<m>_frozen_roi_margin_mean_logreg` | 0.498 ± 0.050 / 0.742 ± 0.015 | n/a | | | HECKTOR done; STOIC ready |
-| F4 | Pooling (frozen) | ROI mean over earlier CNN stages (16 mm, 8 mm cells); ViT n/a | | | | | | planned |
-| T1 | Adaptation | glovita full fine-tuning, paper recipe (D1) | `cnn_lr0.0003`, `vit_lr0.0001` | | | | | ready |
-| T1-last | Adaptation | Same runs as T1, evaluated at the last checkpoint (end of the cosine schedule) instead of the best val AUROC (D20) | `cnn_lr0.0003_last`, `vit_lr0.0001_last` | | | | | ready |
-| R1 | Baseline (handcrafted) | pyradiomics in the ROI, original image (107 features), same probe and splits (D21); one value per cell | `radiomics_original_logreg` | 0.744 ± 0.053 | | | | HECKTOR done |
-| R2 | Baseline (handcrafted) | Same as R1, plus LoG (1, 3 mm) and wavelet images (1037 features) | `radiomics_filtered_logreg` | 0.786 ± 0.008 | | | | HECKTOR done |
-| R3 | Baseline (handcrafted) | R2 features, redundant ones dropped per fold (Spearman \|rho\| > 0.9, fit on train; ~305 of 1037 kept), L2 probe (D22) | `radiomics_filtered_corr0.9_logreg` | 0.814 ± 0.017 | | | | HECKTOR done |
-| R4 | Baseline (handcrafted) | R2 features, elastic-net probe (L1 share 0.1/0.5/0.9 and C chosen on val) | `radiomics_filtered_enet` | 0.817 ± 0.045 | | | | HECKTOR done |
-| R5 | Baseline (handcrafted) | Correlation filter (R3) then elastic net (R4) | `radiomics_filtered_corr0.9_enet` | 0.810 ± 0.044 | | | | HECKTOR done |
-| S1 | Input size | Fixed 192³ at 1 mm (current preprocessing; same as F1-F3) | see F1-F3 | | | | | ready |
-| S2 | Input size | Native 1 mm, input size = FOV; ViT absolute position embedding interpolated (glovita default) | | | | | | planned |
-| S3 | Input size | Same as S2, but the ViT absolute position embedding is cut out (FOV < 192) instead of interpolated, consistent with RoPE; CNN n/a | | | | | | planned |
-| S4 | Input size | Rescale the FOV to 192³ (spacing = FOV / 192) | | | | | | planned |
-| S5 | Input size | Tiling: 192³ windows at 1 mm covering the FOV, ROI-weighted mean of features (FOV > 192) | | | n/a (knee fits in 192) | | | planned |
-| S6 | Input size | ROI-adaptive native: per-case FOV = ROI extent + margin, as in S2 | | | n/a | | | planned |
-| S7 | Input size | ROI-adaptive rescale: per-case FOV = ROI extent + margin, as in S4 | | | n/a | | | planned |
-| I1 | Input | Other single modality: CT (HECKTOR), coronal or axial series (MRNet) | | | | n/a | n/a (CT only) | planned |
-| I3 | Input | ROI = GTVp ∪ GTVn | | | n/a | n/a | n/a | planned |
-| M1 | Modality fusion | Early fusion: modalities as channels on one grid, stem weights repeated / n (glovita). Not planned: we extract embeddings per modality (D14) | | n/a | n/a | n/a | n/a | dropped |
-| M2 | Modality fusion (late) | Feature-level: per-modality embeddings concatenated, one probe | | | | n/a | n/a | planned |
-| M3 | Modality fusion (late) | Feature-level: mean of the per-modality embeddings (one encoder, so one space), one probe | | | | n/a | n/a | planned |
-| M4 | Modality fusion (late) | Score-level: one probe per modality, scores combined by a logistic regression fitted on val (the MRNet paper's scheme) | | | | n/a | n/a | planned |
-| M5 | Modality fusion (late) | Learned attention across the per-modality embeddings or token maps (needs `--save-maps` and a small trained head) | | | | n/a | n/a | planned |
-| E1 | Evaluation | Leave-one-centre-out (removes the centre shortcut, D9) | | | n/a (single centre) | n/a (single centre) | n/a (no centre released) | planned |
+Results grid, one column per task with results. Generated from `outputs/results/` by
+`uv run nnfb-predict table --update docs/progress.md`; do not edit by hand. `-` = not
+run yet; `ref` = `group_prior` (centre only), for tasks with centres.
+
+<!-- generated: design -->
+| ID | hecktor_hpv_pet_gtvp | stoic_covid | stoic_severe |
+|----|---|---|---|
+| F1 | 0.514 ± 0.061 / 0.765 ± 0.047 | 0.621 ± 0.014 / 0.787 ± 0.029 | 0.656 ± 0.023 / 0.760 ± 0.013 |
+| F2 | 0.459 ± 0.053 / 0.710 ± 0.058 | 0.698 ± 0.010 / 0.814 ± 0.012 | 0.697 ± 0.035 / 0.778 ± 0.008 |
+| F3 | 0.498 ± 0.050 / 0.742 ± 0.015 | 0.696 ± 0.007 / 0.808 ± 0.017 | 0.707 ± 0.022 / 0.776 ± 0.009 |
+| T1 | - / - | - / - | - / - |
+| T1-last | - / - | - / - | - / - |
+| R1 | 0.744 ± 0.053 | 0.738 ± 0.013 | 0.747 ± 0.016 |
+| R2 | 0.786 ± 0.008 | 0.726 ± 0.021 | 0.745 ± 0.032 |
+| R3 | 0.814 ± 0.017 | 0.725 ± 0.020 | 0.755 ± 0.028 |
+| R4 | 0.817 ± 0.045 | 0.738 ± 0.017 | 0.755 ± 0.026 |
+| R5 | 0.810 ± 0.044 | 0.735 ± 0.019 | 0.753 ± 0.023 |
+| ref | 0.839 ± 0.011 | n/a | n/a |
+<!-- end generated -->
 
 ### FOV sweep (designs S2-S5)
 
@@ -155,27 +174,31 @@ tokens: fine for frozen inference, too large to fine-tune.
 
 ## Results
 
-Test AUROC, mean ± std over the 5 repeated 40/10/50 splits unless noted.
+Test AUROC, mean ± std over the 5 repeated 40/10/50 splits unless noted. The tables are
+generated blocks (`uv run nnfb-predict table --update docs/progress.md`); the comments
+under them are written by hand.
 
 ### hecktor_hpv_pet_gtvp
 
-| Run | AUROC | Notes |
-|-----|-------|-------|
-| `group_prior` (centre only) | 0.839 ± 0.011 | reference, no image; see D9 in decisions.md |
-| `radiomics_filtered_enet` (R4) | 0.817 ± 0.045 | best image-only mean; the chosen C and L1 share vary a lot between folds |
-| `radiomics_filtered_corr0.9_logreg` (R3) | 0.814 ± 0.017 | about as good, and more stable |
-| `radiomics_filtered_corr0.9_enet` (R5) | 0.810 ± 0.044 | |
-| `radiomics_filtered_logreg` (R2) | 0.786 ± 0.008 | |
-| `vit_frozen_mean_logreg` (F1) | 0.765 ± 0.047 | best embedding run |
-| `radiomics_original_logreg` (R1) | 0.744 ± 0.053 | |
-| `radiomics_original_corr0.9_logreg` | 0.706 ± 0.047 | ~33 of 107 features kept |
-| `radiomics_original_enet` | 0.689 ± 0.109 | |
-| `radiomics_original_corr0.9_enet` | 0.679 ± 0.102 | |
-| `vit_frozen_roi_margin_mean_logreg` (F3) | 0.742 ± 0.015 | |
-| `vit_frozen_roi_mean_logreg` (F2) | 0.710 ± 0.058 | |
-| `cnn_frozen_mean_logreg` (F1) | 0.514 ± 0.061 | chance level, see below |
-| `cnn_frozen_roi_margin_mean_logreg` (F3) | 0.498 ± 0.050 | |
-| `cnn_frozen_roi_mean_logreg` (F2) | 0.459 ± 0.053 | |
+<!-- generated: runs hecktor_hpv_pet_gtvp -->
+| Run | Design | AUROC |
+|-----|--------|-------|
+| `group_prior` | ref | 0.839 ± 0.011 |
+| `radiomics_filtered_enet` | R4 | 0.817 ± 0.045 |
+| `radiomics_filtered_corr0.9_logreg` | R3 | 0.814 ± 0.017 |
+| `radiomics_filtered_corr0.9_enet` | R5 | 0.810 ± 0.044 |
+| `radiomics_filtered_logreg` | R2 | 0.786 ± 0.008 |
+| `vit_frozen_mean_logreg` | F1 | 0.765 ± 0.047 |
+| `radiomics_original_logreg` | R1 | 0.744 ± 0.053 |
+| `vit_frozen_roi_margin_mean_logreg` | F3 | 0.742 ± 0.015 |
+| `vit_frozen_roi_mean_logreg` | F2 | 0.710 ± 0.058 |
+| `radiomics_original_corr0.9_logreg` |  | 0.706 ± 0.047 |
+| `radiomics_original_enet` |  | 0.689 ± 0.109 |
+| `radiomics_original_corr0.9_enet` |  | 0.679 ± 0.102 |
+| `cnn_frozen_mean_logreg` | F1 | 0.514 ± 0.061 |
+| `cnn_frozen_roi_margin_mean_logreg` | F3 | 0.498 ± 0.050 |
+| `cnn_frozen_roi_mean_logreg` | F2 | 0.459 ± 0.053 |
+<!-- end generated -->
 
 Frozen probes (D13), extracted on 2026-11-13: logistic regression on 40 train cases, C
 chosen on 10 val cases, tested on 51. Small, so expect noise.
@@ -195,9 +218,69 @@ chosen on 10 val cases, tested on 51. Small, so expect noise.
   across splits. On the 107 original features both hurt (0.68-0.71 vs 0.744). With few
   features, dropping or zeroing them loses information that L2 can still use.
 - The probe's chosen C swings from 1e-4 to 10 between folds: 10 val cases cannot pick it
-  reliably. This applies to every probe row.
+  reliably. This applies to every probe row; for R4 the chosen L1 share varies a lot too.
+- Correlation filter at 0.9: about 305 of 1037 filtered features kept, about 33 of 107
+  original ones.
 - Nothing beats `group_prior` (0.84). Image features may partly encode the centre too; the
   leave-one-centre-out evaluation (E1) is needed to tell.
+
+### stoic_severe
+
+<!-- generated: runs stoic_severe -->
+| Run | Design | AUROC |
+|-----|--------|-------|
+| `vit_frozen_roi_mean_logreg` | F2 | 0.778 ± 0.008 |
+| `vit_frozen_roi_margin_mean_logreg` | F3 | 0.776 ± 0.009 |
+| `vit_frozen_mean_logreg` | F1 | 0.760 ± 0.013 |
+| `radiomics_original_enet` |  | 0.756 ± 0.018 |
+| `radiomics_filtered_corr0.9_logreg` | R3 | 0.755 ± 0.028 |
+| `radiomics_filtered_enet` | R4 | 0.755 ± 0.026 |
+| `radiomics_filtered_corr0.9_enet` | R5 | 0.753 ± 0.023 |
+| `radiomics_original_logreg` | R1 | 0.747 ± 0.016 |
+| `radiomics_original_corr0.9_enet` |  | 0.746 ± 0.014 |
+| `radiomics_filtered_logreg` | R2 | 0.745 ± 0.032 |
+| `radiomics_original_corr0.9_logreg` |  | 0.744 ± 0.021 |
+| `cnn_frozen_roi_margin_mean_logreg` | F3 | 0.707 ± 0.022 |
+| `cnn_frozen_roi_mean_logreg` | F2 | 0.697 ± 0.035 |
+| `cnn_frozen_mean_logreg` | F1 | 0.656 ± 0.023 |
+<!-- end generated -->
+
+Frozen probes and radiomics, 2026-11-17: 800 train, 200 val, 1000 test cases per split
+(about 150 positives in test), so much less noisy than HECKTOR.
+- **ViT > radiomics > CNN.** Unlike HECKTOR, the frozen ViT beats the handcrafted
+  baseline (0.78 vs 0.75).
+- **ROI pooling helps here**, for both encoders: ROI mean and ROI + 10 mm > whole crop.
+  The lungs fill most of the crop, so the whole-crop mean mixes in the chest wall and the
+  mediastinum.
+- **The filtered radiomics set brings nothing:** R2-R5 are within noise of R1
+  (backlog item on dropping it).
+
+### stoic_covid
+
+<!-- generated: runs stoic_covid -->
+| Run | Design | AUROC |
+|-----|--------|-------|
+| `vit_frozen_roi_mean_logreg` | F2 | 0.814 ± 0.012 |
+| `vit_frozen_roi_margin_mean_logreg` | F3 | 0.808 ± 0.017 |
+| `vit_frozen_mean_logreg` | F1 | 0.787 ± 0.029 |
+| `radiomics_filtered_enet` | R4 | 0.738 ± 0.017 |
+| `radiomics_original_logreg` | R1 | 0.738 ± 0.013 |
+| `radiomics_original_enet` |  | 0.737 ± 0.013 |
+| `radiomics_filtered_corr0.9_enet` | R5 | 0.735 ± 0.019 |
+| `radiomics_original_corr0.9_logreg` |  | 0.734 ± 0.012 |
+| `radiomics_original_corr0.9_enet` |  | 0.728 ± 0.015 |
+| `radiomics_filtered_logreg` | R2 | 0.726 ± 0.021 |
+| `radiomics_filtered_corr0.9_logreg` | R3 | 0.725 ± 0.020 |
+| `cnn_frozen_roi_mean_logreg` | F2 | 0.698 ± 0.010 |
+| `cnn_frozen_roi_margin_mean_logreg` | F3 | 0.696 ± 0.007 |
+| `cnn_frozen_mean_logreg` | F1 | 0.621 ± 0.014 |
+<!-- end generated -->
+
+Same scans, crops, features and ROIs as `stoic_severe` (linked, not recomputed); only
+the label and the stratified splits differ. 1205 of 2000 positive.
+- Same ordering as severe, with a wider gap: ViT ROI mean about 0.81 vs radiomics about
+  0.73-0.74. ROI pooling again beats the whole crop for both encoders.
+- Here the filtered radiomics set is slightly *worse* than `original` (R2, R3 vs R1).
 
 ### kits_liver
 
@@ -277,3 +360,13 @@ None yet.
   probes have run on LLD-MMRI and STOIC; other deferred items from today are listed there too.
 - Added `scripts/run_probes.sh <task>`: frozen features + radiomics + all probes + design
   grid for one prepared task. Checked on HECKTOR: same numbers as the runs by hand.
+
+### 2026-11-17
+- `scripts/run_probes.sh` finished on `stoic_severe` and `stoic_covid` (see Results).
+  On STOIC severe the frozen ViT beats radiomics and ROI pooling helps, unlike HECKTOR.
+  `stoic_covid` reuses the crops, features and radiomics of `stoic_severe` through
+  symlinks in `data/processed/stoic_covid/`; only its labels and splits are its own.
+- Layout (D23): results and logs moved from `reports/` to `outputs/` (not versioned);
+  `reports/` keeps only what people read. Result tables in this file are now generated
+  blocks, rebuilt with `uv run nnfb-predict table --update docs/progress.md`.
+

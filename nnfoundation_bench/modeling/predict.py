@@ -1,6 +1,7 @@
 """Test-set inference and AUROC evaluation (``uv run nnfb-predict --help``)."""
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -60,7 +61,7 @@ def predict(
 ) -> None:
     """Run a checkpoint of a run on the fold's test split and compute AUROC.
 
-    Results go to ``reports/results/<task>/<run>/`` for ``best`` and
+    Results go to ``outputs/results/<task>/<run>/`` for ``best`` and
     ``<run>_last/`` for ``last``, so evaluating one never overwrites the other.
     """
     run = run_name(model, lr, scratch, tag)
@@ -153,18 +154,24 @@ DESIGN_RUNS = {
 }
 
 
-def auroc_summary(task: str) -> pd.Series:
-    """``"mean ± std"`` test AUROC per run of TASK (empty if nothing is evaluated)."""
+def auroc_stats(task: str) -> pd.DataFrame:
+    """Test AUROC ``mean``, ``std`` and fold ``count`` per run of TASK (empty if none)."""
     rows = [json.loads(p.read_text()) for p in (RESULTS_DIR / task).glob("*/fold*/metrics.json")]
     if not rows:
-        return pd.Series(dtype=str)
-    stats = pd.DataFrame(rows).groupby("run")["auroc"].agg(["mean", "std", "count"])
-    return stats.apply(
-        lambda r: (
-            f"{r['mean']:.3f} ± {r['std']:.3f}" + ("" if r["count"] == 5 else f" (n={r['count']})")
-        ),
-        axis=1,
-    )
+        return pd.DataFrame(columns=["mean", "std", "count"])
+    return pd.DataFrame(rows).groupby("run")["auroc"].agg(["mean", "std", "count"])
+
+
+def format_auroc(row: pd.Series, n_folds: int = 5) -> str:
+    """``"mean ± std"``, with the fold count if it is not the full set."""
+    folds = "" if row["count"] == n_folds else f" (n={int(row['count'])})"
+    return f"{row['mean']:.3f} ± {row['std']:.3f}{folds}"
+
+
+def auroc_summary(task: str) -> pd.Series:
+    """``"mean ± std"`` test AUROC per run of TASK (empty if nothing is evaluated)."""
+    stats = auroc_stats(task)
+    return stats.apply(format_auroc, axis=1) if len(stats) else pd.Series(dtype=str)
 
 
 def design_table(summaries: dict[str, pd.Series], models: tuple[str, ...] = ("cnn", "vit")) -> str:
@@ -182,15 +189,69 @@ def design_table(summaries: dict[str, pd.Series], models: tuple[str, ...] = ("cn
     return "\n".join(lines)
 
 
+def design_ids(models: tuple[str, ...] = ("cnn", "vit")) -> dict[str, str]:
+    """Run name -> design ID (``F1``...), plus ``ref`` for ``group_prior``."""
+    ids = {"group_prior": "ref"}
+    for design, run in DESIGN_RUNS.items():
+        for name in [run] if isinstance(run, str) else [run(m) for m in models]:
+            ids[name] = design
+    return ids
+
+
+def runs_table(stats: pd.DataFrame) -> str:
+    """Markdown table of every run of one task, best mean AUROC first."""
+    ids = design_ids()
+    lines = ["| Run | Design | AUROC |", "|-----|--------|-------|"]
+    for run, row in stats.sort_values("mean", ascending=False).iterrows():
+        lines.append(f"| `{run}` | {ids.get(run, '')} | {format_auroc(row)} |")
+    return "\n".join(lines)
+
+
+# Generated blocks in a markdown file:
+#   <!-- generated: design [tasks...] -->  ...  <!-- end generated -->
+#   <!-- generated: runs <task> -->        ...  <!-- end generated -->
+GENERATED_BLOCK = re.compile(
+    r"(?P<open><!-- generated: (?P<spec>[^>]*?) -->\n).*?(?P<close><!-- end generated -->)",
+    re.DOTALL,
+)
+
+
+def render_block(spec: str) -> str:
+    kind, *tasks = spec.split()
+    if kind == "design":
+        tasks = tasks or sorted(p.name for p in RESULTS_DIR.iterdir() if p.is_dir())
+        return design_table({task: auroc_summary(task) for task in tasks})
+    if kind == "runs" and len(tasks) == 1:
+        stats = auroc_stats(tasks[0])
+        return runs_table(stats) if len(stats) else "No results yet."
+    raise ValueError(f"Unknown generated block: {spec!r}")
+
+
+def update_generated(text: str, render=render_block) -> str:
+    """Replace the body of every generated block of ``text`` with ``render(spec)``."""
+    return GENERATED_BLOCK.sub(lambda m: f"{m['open']}{render(m['spec'])}\n{m['close']}", text)
+
+
 @app.command()
 def table(
     tasks: Annotated[
         list[str] | None, typer.Argument(help="Tasks (default: all with results)")
     ] = None,
+    update: Annotated[
+        Path | None,
+        typer.Option(help="Rewrite the generated blocks of this markdown file instead"),
+    ] = None,
 ) -> None:
-    """Design-benchmark grid (markdown) from every task's results; ref = group_prior."""
-    tasks = tasks or sorted(p.name for p in RESULTS_DIR.iterdir() if p.is_dir())
-    typer.echo(design_table({task: auroc_summary(task) for task in tasks}))
+    """Design-benchmark grid (markdown) from every task's results; ref = group_prior.
+
+    With ``--update docs/progress.md``, every ``<!-- generated: ... -->`` block of the
+    file is rebuilt from outputs/results, so result tables never come from memory.
+    """
+    if update is not None:
+        update.write_text(update_generated(update.read_text()))
+        logger.success(f"Updated the generated tables of {update}")
+        return
+    typer.echo(render_block(" ".join(["design", *(tasks or [])])))
 
 
 if __name__ == "__main__":

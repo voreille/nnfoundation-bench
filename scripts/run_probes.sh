@@ -20,7 +20,7 @@ RADIOMICS=${RADIOMICS-"original filtered"}
 JOBS=${JOBS:-32}
 
 cd "$(dirname "$0")/.."
-LOG_DIR=reports/logs/$TASK
+LOG_DIR=outputs/logs/$TASK
 mkdir -p "$LOG_DIR"
 read -ra MODEL_LIST <<< "$MODELS"
 read -ra GPU_LIST <<< "$GPUS"
