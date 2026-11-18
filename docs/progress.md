@@ -22,13 +22,13 @@ as input channels, ROI handling, and how to pool features within a ROI.
 | `lld_mmri_malignant_*` (8 phases) | 498 patients x 8 series on the NAS, all files present | all 8 prepared: 498 cases, 266 malignant, no failures, no missing ROI | frozen probes and radiomics done for all 8 |
 | `stoic_severe`, `stoic_covid` | 2000 scans | both prepared: 2000 cases, no failures; `stoic_covid` links the crops, features and radiomics of `stoic_severe` | frozen probes and radiomics done for both |
 | `rsna_spine_fracture` | 2019 studies unpacked on the NAS, checked (961 positive) | prepare on the host stopped at 1792 of 2019 (tmux session killed 2026-11-18 08:13); rerun resumes | none yet |
-| `brats_gbm_*` (4 sequences) | 1809 scans on the NAS, 1621 with seg; metadata xlsx read | all 4 prepared on the host: 632 cases, 384 GBM, no failures, no missing ROI; identical labels and splits (D26) | frozen probes, radiomics and site-only reference done for all 4 |
+| `brats_gbm_*` (4 sequences) | 1809 scans on the NAS, 1621 with seg; metadata xlsx read | all 4 prepared on the host: 632 cases, 384 GBM, no failures, no missing ROI; identical labels and splits (D26) | probes, radiomics, site and age references, fusion (`brats_gbm_fused`) done |
 
 Next steps:
 1. Frozen probes and radiomics are done on HECKTOR, both STOIC tasks and the 8 LLD-MMRI
    phases.
-2. BraTS: age references (D27) and late fusion over the 4 sequences (D28): code ready, to
-   run on the host (labels.csv must be rewritten with `age` first).
+2. BraTS: age references and fusion done. Next: a generated age-and-site stratified AUROC
+   (see Results) and age-adjusted probes (D27 open).
 3. RSNA: resume `prepare rsna_spine_fracture`, then `RADIOMICS="original"
    scripts/run_probes.sh rsna_spine_fracture`.
 4. Fine-tuning baseline with glovita: `FOLDS=0 scripts/run_benchmark.sh hecktor_hpv_pet_gtvp`
@@ -41,6 +41,10 @@ Next steps:
    "pathology"). Each task needs about 12 GB in `data/processed`. See D12.
 
 ## Backlog
+
+- **Age-and-site stratified AUROC as a generated table** (pairs from the same centre and age
+  band, like D24 with a finer group). On BraTS it separated the age shortcut from tumour
+  signal (Results). *Trigger:* another task with an `age` column, or reporting BraTS.
 
 Ideas parked until results on more datasets show they are worth it. Each item says what
 would trigger it. Move an item to "Next steps" when it is picked up.
@@ -187,27 +191,37 @@ BraTS 2024 glioma, one column per MR sequence (task `brats_gbm_<seq>`), GBM vs
 astrocytoma/oligodendroglioma. Test AUROC, then within-centre AUROC (D24):
 
 <!-- generated: design brats_* -->
-| ID | brats_gbm_t1c | brats_gbm_t1n | brats_gbm_t2f | brats_gbm_t2w |
-|----|---|---|---|---|
-| F1 | 0.728 ± 0.011 / 0.839 ± 0.016 | 0.728 ± 0.016 / 0.874 ± 0.015 | 0.725 ± 0.027 / 0.852 ± 0.019 | 0.730 ± 0.028 / 0.877 ± 0.014 |
-| F2 | 0.689 ± 0.031 / 0.851 ± 0.013 | 0.668 ± 0.028 / 0.844 ± 0.015 | 0.730 ± 0.022 / 0.847 ± 0.013 | 0.661 ± 0.053 / 0.817 ± 0.029 |
-| F3 | 0.669 ± 0.016 / 0.834 ± 0.017 | 0.692 ± 0.029 / 0.832 ± 0.018 | 0.739 ± 0.022 / 0.829 ± 0.017 | 0.683 ± 0.020 / 0.855 ± 0.017 |
-| T1 | - / - | - / - | - / - | - / - |
-| T1-last | - / - | - / - | - / - | - / - |
-| R1 | 0.778 ± 0.046 | 0.756 ± 0.018 | 0.756 ± 0.020 | 0.759 ± 0.018 |
-| ref | 0.667 ± 0.001 | 0.667 ± 0.001 | 0.667 ± 0.001 | 0.667 ± 0.001 |
+| ID | brats_gbm_fused | brats_gbm_t1c | brats_gbm_t1n | brats_gbm_t2f | brats_gbm_t2w |
+|----|---|---|---|---|---|
+| F1 | - / - | 0.728 ± 0.011 / 0.839 ± 0.016 | 0.728 ± 0.016 / 0.874 ± 0.015 | 0.725 ± 0.027 / 0.852 ± 0.019 | 0.730 ± 0.028 / 0.877 ± 0.014 |
+| F2 | - / - | 0.689 ± 0.031 / 0.851 ± 0.013 | 0.668 ± 0.028 / 0.844 ± 0.015 | 0.730 ± 0.022 / 0.847 ± 0.013 | 0.661 ± 0.053 / 0.817 ± 0.029 |
+| F3 | - / - | 0.669 ± 0.016 / 0.834 ± 0.017 | 0.692 ± 0.029 / 0.832 ± 0.018 | 0.739 ± 0.022 / 0.829 ± 0.017 | 0.683 ± 0.020 / 0.855 ± 0.017 |
+| T1 | - / - | - / - | - / - | - / - | - / - |
+| T1-last | - / - | - / - | - / - | - / - | - / - |
+| R1 | - | 0.778 ± 0.046 | 0.756 ± 0.018 | 0.756 ± 0.020 | 0.759 ± 0.018 |
+| M2 | 0.749 ± 0.007 / 0.864 ± 0.013 | - / - | - / - | - / - | - / - |
+| M3 | 0.710 ± 0.044 / 0.851 ± 0.011 | - / - | - / - | - / - | - / - |
+| M4 | 0.747 ± 0.027 / 0.854 ± 0.013 | - / - | - / - | - / - | - / - |
+| ref-age | 0.772 ± 0.018 | 0.772 ± 0.018 | 0.772 ± 0.018 | 0.772 ± 0.018 | 0.772 ± 0.018 |
+| ref-age+site | 0.814 ± 0.015 | 0.814 ± 0.015 | 0.814 ± 0.015 | 0.814 ± 0.015 | 0.814 ± 0.015 |
+| ref | 0.667 ± 0.001 | 0.667 ± 0.001 | 0.667 ± 0.001 | 0.667 ± 0.001 | 0.667 ± 0.001 |
 <!-- end generated -->
 
 <!-- generated: design-within brats_* -->
-| ID | brats_gbm_t1c | brats_gbm_t1n | brats_gbm_t2f | brats_gbm_t2w |
-|----|---|---|---|---|
-| F1 | 0.689 ± 0.014 / 0.790 ± 0.017 | 0.682 ± 0.027 / 0.829 ± 0.019 | 0.713 ± 0.020 / 0.809 ± 0.023 | 0.695 ± 0.020 / 0.825 ± 0.021 |
-| F2 | 0.675 ± 0.030 / 0.833 ± 0.018 | 0.664 ± 0.023 / 0.833 ± 0.022 | 0.702 ± 0.019 / 0.829 ± 0.022 | 0.663 ± 0.052 / 0.800 ± 0.031 |
-| F3 | 0.658 ± 0.015 / 0.804 ± 0.009 | 0.692 ± 0.023 / 0.810 ± 0.020 | 0.713 ± 0.020 / 0.799 ± 0.015 | 0.685 ± 0.020 / 0.823 ± 0.025 |
-| T1 | - / - | - / - | - / - | - / - |
-| T1-last | - / - | - / - | - / - | - / - |
-| R1 | 0.751 ± 0.048 | 0.698 ± 0.015 | 0.714 ± 0.036 | 0.716 ± 0.031 |
-| ref | 0.500 ± 0.000 | 0.500 ± 0.000 | 0.500 ± 0.000 | 0.500 ± 0.000 |
+| ID | brats_gbm_fused | brats_gbm_t1c | brats_gbm_t1n | brats_gbm_t2f | brats_gbm_t2w |
+|----|---|---|---|---|---|
+| F1 | - / - | 0.689 ± 0.014 / 0.790 ± 0.017 | 0.682 ± 0.027 / 0.829 ± 0.019 | 0.713 ± 0.020 / 0.809 ± 0.023 | 0.695 ± 0.020 / 0.825 ± 0.021 |
+| F2 | - / - | 0.675 ± 0.030 / 0.833 ± 0.018 | 0.664 ± 0.023 / 0.833 ± 0.022 | 0.702 ± 0.019 / 0.829 ± 0.022 | 0.663 ± 0.052 / 0.800 ± 0.031 |
+| F3 | - / - | 0.658 ± 0.015 / 0.804 ± 0.009 | 0.692 ± 0.023 / 0.810 ± 0.020 | 0.713 ± 0.020 / 0.799 ± 0.015 | 0.685 ± 0.020 / 0.823 ± 0.025 |
+| T1 | - / - | - / - | - / - | - / - | - / - |
+| T1-last | - / - | - / - | - / - | - / - | - / - |
+| R1 | - | 0.751 ± 0.048 | 0.698 ± 0.015 | 0.714 ± 0.036 | 0.716 ± 0.031 |
+| M2 | 0.724 ± 0.005 / 0.844 ± 0.016 | - / - | - / - | - / - | - / - |
+| M3 | 0.696 ± 0.043 / 0.831 ± 0.014 | - / - | - / - | - / - | - / - |
+| M4 | 0.725 ± 0.025 / 0.837 ± 0.015 | - / - | - / - | - / - | - / - |
+| ref-age | 0.776 ± 0.023 | 0.776 ± 0.023 | 0.776 ± 0.023 | 0.776 ± 0.023 | 0.776 ± 0.023 |
+| ref-age+site | 0.776 ± 0.023 | 0.776 ± 0.023 | 0.776 ± 0.023 | 0.776 ± 0.023 | 0.776 ± 0.023 |
+| ref | 0.500 ± 0.000 | 0.500 ± 0.000 | 0.500 ± 0.000 | 0.500 ± 0.000 | 0.500 ± 0.000 |
 <!-- end generated -->
 
 ### FOV sweep (designs S2-S5)
@@ -374,14 +388,53 @@ Grids above (`design brats_*`, `design-within brats_*`). 632 patients, 384 GBM; 
   level with or above the whole crop (t1c, t1n 0.833).
 - **ROI pooling does not help in plain AUROC** (unlike LLD-MMRI). The crop holds most of the
   brain, so this may partly be patient age (atrophy, ventricles): GBM patients are older.
-  An age-only reference is the next check.
+  Confirmed by the age references below.
 - **ViT beats radiomics on every sequence** (R1 0.76-0.78 plain, 0.70-0.75 within). The CNN is
   below radiomics (0.66-0.74), as on the other tasks.
 
 Late fusion over the 4 sequences (D28), every pooling and method, on the fused task
 `brats_gbm_fused` (AUROC, then within-centre AUROC):
 
+Age and fusion, 2026-11-18:
+- **Age is a strong shortcut:** age alone 0.772 (`ref-age`), age + site 0.814, within-centre
+  0.776. That is level with single-sequence radiomics (0.76-0.78). The ViT (0.84-0.88) is
+  above it, but by much less than it is above the site-only `ref` (0.667).
+- **The tumour ROI carries the signal beyond age.** One-off check (not a generated table):
+  AUROC on pairs from the same site *and* age decade, where age alone falls to 0.62. ViT
+  ROI-mean runs hold up (t1c F2 0.821, fused concat ROI mean 0.826); whole-crop runs drop more
+  (t2w F1 0.877 → 0.762, fused concat whole crop 0.885 → 0.781). So the whole-crop advantage in
+  plain AUROC is largely age; for this task, read ROI pooling as the better design.
+- **Fusion gains are small:** best plain AUROC is the concat of whole-crop embeddings (0.885 vs
+  0.877 single), best within-centre the concat of ROI means (M2 0.844 vs 0.833 single).
+  M2 ≈ M4 > M3 (averaging the embeddings loses information). Fused radiomics 0.817.
+- **CNN stays below age alone** in every variant (0.71-0.77).
+
 <!-- generated: runs brats_gbm_fused -->
+| Run | Design | AUROC | Within-centre AUROC |
+|---|---|---|---|
+| `vit_fused_concat_mean_logreg` |  | 0.885 ± 0.013 | 0.831 ± 0.018 |
+| `vit_fused_mean_mean_logreg` |  | 0.878 ± 0.014 | 0.823 ± 0.018 |
+| `vit_fused_stack_mean_logreg` |  | 0.877 ± 0.019 | 0.830 ± 0.020 |
+| `vit_fused_concat_roi_mean_logreg` | M2 | 0.864 ± 0.013 | 0.844 ± 0.016 |
+| `vit_fused_concat_roi_margin_mean_logreg` |  | 0.859 ± 0.019 | 0.830 ± 0.007 |
+| `vit_fused_stack_roi_margin_mean_logreg` |  | 0.854 ± 0.022 | 0.824 ± 0.014 |
+| `vit_fused_stack_roi_mean_logreg` | M4 | 0.854 ± 0.013 | 0.837 ± 0.015 |
+| `vit_fused_mean_roi_mean_logreg` | M3 | 0.851 ± 0.011 | 0.831 ± 0.014 |
+| `vit_fused_mean_roi_margin_mean_logreg` |  | 0.844 ± 0.025 | 0.813 ± 0.030 |
+| `radiomics_original_fused_concat_logreg` |  | 0.817 ± 0.023 | 0.774 ± 0.034 |
+| `covariates_age_group_logreg` | ref-age+site | 0.814 ± 0.015 | 0.776 ± 0.023 |
+| `radiomics_original_fused_stack_logreg` |  | 0.790 ± 0.021 | 0.754 ± 0.031 |
+| `covariates_age_logreg` | ref-age | 0.772 ± 0.018 | 0.776 ± 0.023 |
+| `cnn_fused_stack_mean_logreg` |  | 0.771 ± 0.011 | 0.725 ± 0.018 |
+| `cnn_fused_concat_mean_logreg` |  | 0.760 ± 0.032 | 0.697 ± 0.034 |
+| `cnn_fused_concat_roi_margin_mean_logreg` |  | 0.750 ± 0.023 | 0.723 ± 0.030 |
+| `cnn_fused_stack_roi_margin_mean_logreg` |  | 0.750 ± 0.037 | 0.732 ± 0.030 |
+| `cnn_fused_concat_roi_mean_logreg` | M2 | 0.749 ± 0.007 | 0.724 ± 0.005 |
+| `cnn_fused_stack_roi_mean_logreg` | M4 | 0.747 ± 0.027 | 0.725 ± 0.025 |
+| `cnn_fused_mean_mean_logreg` |  | 0.727 ± 0.017 | 0.691 ± 0.021 |
+| `cnn_fused_mean_roi_margin_mean_logreg` |  | 0.718 ± 0.036 | 0.708 ± 0.027 |
+| `cnn_fused_mean_roi_mean_logreg` | M3 | 0.710 ± 0.044 | 0.696 ± 0.043 |
+| `group_prior` | ref | 0.667 ± 0.001 | 0.500 ± 0.000 |
 <!-- end generated -->
 
 ### kits_liver
@@ -500,3 +553,7 @@ None yet.
 - BraTS: added the age references (D27, `nnfb-predict covariate-baseline`; `brats.py` now
   writes `age`) and late fusion M2-M4 (D28, `nnfb-features fuse`, results under a fused task
   name such as `brats_gbm_fused`). Unit-tested on synthetic data; real runs pending on the host.
+- BraTS on the host: labels.csv rewritten with `age` (splits unchanged, same hash), age
+  references and fusion (CNN, ViT, radiomics) run. Age alone 0.772, age + site 0.814; best
+  ViT fused 0.885 (concat, whole crop), 0.844 within-centre (concat, ROI mean). Within the
+  same site and age decade the ROI-pooled ViT keeps ~0.82, the whole-crop ViT drops to ~0.78.
