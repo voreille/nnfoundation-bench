@@ -16,6 +16,13 @@ from sklearn.metrics import average_precision_score, roc_auc_score
 
 from nnfoundation_bench.config import PROCESSED_DATA_DIR, RESULTS_DIR
 from nnfoundation_bench.modeling.runs import eval_run_name, results_dir, run_dir, run_name
+from nnfoundation_bench.modeling.survival import (
+    group_hazard_scores,
+    probe_kind,
+    survival_metrics,
+    survival_table,
+    within_group_cindex,
+)
 from nnfoundation_bench.weights import MODELS
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
@@ -125,27 +132,34 @@ def group_baseline(task: str) -> None:
     """Reference run 'group_prior': predict from the case's group (e.g. centre) alone.
 
     Needs a ``group`` column in labels.csv. Shows how much of a task is solvable from
-    confounders; model AUROCs should be read against it.
+    confounders; model AUROCs should be read against it. Survival tasks: risk = the
+    group's events per day of follow-up, scored by C-index.
     """
     root = PROCESSED_DATA_DIR / task
-    labels = pd.read_csv(root / "labels.csv")
+    labels = pd.read_csv(root / "labels.csv", dtype={"case_id": str})
     if "group" not in labels:
         raise typer.Exit(f"{task} has no group column in labels.csv")
     labels = labels[labels["case_id"].isin(json.loads((root / "labels.json").read_text()))]
+    survival = survival_table(task) is not None
+    key = metric_key(task)
     for fold, split in enumerate(json.loads((root / "splits.json").read_text())):
-        cases = group_prior_scores(labels, split)
+        if survival:
+            cases = group_hazard_scores(labels, split)
+            scores = survival_metrics(cases["event"], cases["time"], cases["score"])
+        else:
+            cases = group_prior_scores(labels, split)
+            scores = binary_metrics(cases["label"].to_numpy(), cases["score"].to_numpy())
         out_dir = results_dir(task, "group_prior", fold)
         out_dir.mkdir(parents=True, exist_ok=True)
         cases.to_csv(out_dir / "predictions.csv", index=False)
-        metrics = {"task": task, "run": "group_prior", "fold": fold}
-        metrics |= binary_metrics(cases["label"].to_numpy(), cases["score"].to_numpy())
+        metrics = {"task": task, "run": "group_prior", "fold": fold} | scores
         (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
-        logger.info(f"group_prior fold {fold}: AUROC {metrics['auroc']:.4f}")
+        logger.info(f"group_prior fold {fold}: {key} {metrics[key]:.4f}")
 
 
 @app.command()
 def summarize(task: str) -> None:
-    """Mean/std AUROC over folds for every evaluated run of TASK."""
+    """Mean/std AUROC (C-index for survival tasks) over folds for every run of TASK."""
     rows = [
         json.loads(p.read_text())
         for p in sorted((RESULTS_DIR / task).glob("*/fold*/metrics.json"))
@@ -153,23 +167,38 @@ def summarize(task: str) -> None:
     if not rows:
         raise typer.Exit(f"No results under {RESULTS_DIR / task}")
     df = pd.DataFrame(rows)
-    summary = df.groupby("run")["auroc"].agg(["mean", "std", "count"]).sort_values("mean")
+    summary = df.groupby("run")[metric_key(task)].agg(["mean", "std", "count"])
+    summary = summary.sort_values("mean")
     summary.to_csv(RESULTS_DIR / task / "summary.csv")
     typer.echo(summary.to_string(float_format="%.4f"))
 
 
-# Design-benchmark rows (docs/progress.md) -> run name per pretrained model.
+# Design-benchmark rows (docs/progress.md) -> run name, given the pretrained model ``m``
+# and the probe kind ``p`` (``logreg``, or ``cox`` on survival tasks).
 DESIGN_RUNS = {
-    "F1": lambda m: f"{m}_frozen_mean_logreg",
-    "F2": lambda m: f"{m}_frozen_roi_mean_logreg",
-    "F3": lambda m: f"{m}_frozen_roi_margin_mean_logreg",
-    "T1": lambda m: run_name(m),
-    "T1-last": lambda m: eval_run_name(run_name(m), "last"),
+    "F1": lambda m, p: f"{m}_frozen_mean_{p}",
+    "F2": lambda m, p: f"{m}_frozen_roi_mean_{p}",
+    "F3": lambda m, p: f"{m}_frozen_roi_margin_mean_{p}",
+    # Tasks with several named ROIs (HECKTOR 2022: GTVp, GTVn; D27).
+    "F5": lambda m, p: f"{m}_frozen_gtvp_mean_{p}",
+    "F6": lambda m, p: f"{m}_frozen_gtvn_mean_{p}",
+    "F7": lambda m, p: f"{m}_frozen_roi_concat_mean_{p}",
+    "T1": lambda m, p: run_name(m),
+    "T1-last": lambda m, p: eval_run_name(run_name(m), "last"),
     # Model-independent rows (one value per cell): handcrafted radiomics baselines.
     # R2-R5 (filtered set, correlation filter, elastic net) were dropped (D25); their past
     # runs still show in the runs tables.
-    "R1": "radiomics_original_logreg",
+    "R1": lambda p: f"radiomics_original_{p}",
 }
+
+
+def metric_key(task: str) -> str:
+    """metrics.json key of the task's main metric: ``cindex`` or ``auroc``."""
+    return "cindex" if survival_table(task) is not None else "auroc"
+
+
+def metric_label(task: str) -> str:
+    return "C-index" if survival_table(task) is not None else "AUROC"
 
 
 def task_groups(task: str) -> pd.Series | None:
@@ -182,12 +211,15 @@ def task_groups(task: str) -> pd.Series | None:
 
 
 def auroc_stats(task: str, within_group: bool = False) -> pd.DataFrame:
-    """Test AUROC ``mean``, ``std`` and fold ``count`` per run of TASK (empty if none).
+    """Test ``mean``, ``std`` and fold ``count`` of the task's metric per run (AUROC, or
+    C-index on survival tasks); empty if nothing is evaluated.
 
-    ``within_group`` recomputes each fold's AUROC from its ``predictions.csv`` with
-    ``within_group_auroc`` (tasks with a ``group`` column; empty otherwise).
+    ``within_group`` recomputes each fold's metric from its ``predictions.csv`` with
+    ``within_group_auroc`` / ``within_group_cindex`` (tasks with a ``group`` column;
+    empty otherwise).
     """
     empty = pd.DataFrame(columns=["mean", "std", "count"])
+    key = metric_key(task)
     if not within_group:
         paths = (RESULTS_DIR / task).glob("*/fold*/metrics.json")
         rows = [json.loads(p.read_text()) for p in paths]
@@ -197,15 +229,18 @@ def auroc_stats(task: str, within_group: bool = False) -> pd.DataFrame:
         rows = []
         for path in (RESULTS_DIR / task).glob("*/fold*/predictions.csv"):
             cases = pd.read_csv(path, dtype={"case_id": str})
-            auroc = within_group_auroc(
-                cases["label"].to_numpy(),
-                cases["score"].to_numpy(),
-                cases["case_id"].map(groups).to_numpy(),
-            )
-            rows.append({"run": path.parent.parent.name, "auroc": auroc})
+            group = cases["case_id"].map(groups).to_numpy()
+            score = cases["score"].to_numpy()
+            if key == "cindex":
+                value = within_group_cindex(
+                    cases["event"].to_numpy(), cases["time"].to_numpy(), score, group
+                )
+            else:
+                value = within_group_auroc(cases["label"].to_numpy(), score, group)
+            rows.append({"run": path.parent.parent.name, key: value})
     if not rows:
         return empty
-    return pd.DataFrame(rows).groupby("run")["auroc"].agg(["mean", "std", "count"])
+    return pd.DataFrame(rows).groupby("run")[key].agg(["mean", "std", "count"])
 
 
 def format_auroc(row: pd.Series, n_folds: int = 5) -> str:
@@ -220,35 +255,57 @@ def auroc_summary(task: str, within_group: bool = False) -> pd.Series:
     return stats.apply(format_auroc, axis=1) if len(stats) else pd.Series(dtype=str)
 
 
-def design_table(summaries: dict[str, pd.Series], models: tuple[str, ...] = ("cnn", "vit")) -> str:
+def design_table(
+    summaries: dict[str, pd.Series],
+    models: tuple[str, ...] = ("cnn", "vit"),
+    kinds: dict[str, str] | None = None,
+    headers: dict[str, str] | None = None,
+) -> str:
     """Markdown grid: one row per design, one column per task, cells ``CNN / ViT``
-    (one value for model-independent rows such as radiomics)."""
-    lines = ["| ID | " + " | ".join(summaries) + " |", "|----|" + "---|" * len(summaries)]
+    (one value for model-independent rows such as radiomics).
+
+    ``kinds`` gives each task's probe kind (default ``logreg``), ``headers`` its column
+    title (default the task name). Rows without any run in these tasks are left out.
+    """
+    kinds, headers = kinds or {}, headers or {}
+    titles = [headers.get(t, t) for t in summaries]
+    lines = ["| ID | " + " | ".join(titles) + " |", "|----|" + "---|" * len(summaries)]
     for design, run in DESIGN_RUNS.items():
-        if isinstance(run, str):
-            cells = [s.get(run, "-") for s in summaries.values()]
-        else:
-            cells = [" / ".join(s.get(run(m), "-") for m in models) for s in summaries.values()]
-        lines.append(f"| {design} | " + " | ".join(cells) + " |")
+        single = run.__code__.co_argcount == 1
+        cells, found = [], False
+        for task, s in summaries.items():
+            p = kinds.get(task, "logreg")
+            names = [run(p)] if single else [run(m, p) for m in models]
+            found |= any(n in s for n in names)
+            cells.append(" / ".join(s.get(n, "-") for n in names))
+        if found or design in ("F1", "F2", "F3", "T1", "T1-last", "R1"):
+            lines.append(f"| {design} | " + " | ".join(cells) + " |")
     cells = [s.get("group_prior", "n/a") for s in summaries.values()]
     lines.append("| ref | " + " | ".join(cells) + " |")
     return "\n".join(lines)
 
 
-def design_ids(models: tuple[str, ...] = ("cnn", "vit")) -> dict[str, str]:
+def design_ids(models: tuple[str, ...] = ("cnn", "vit"), kind: str = "logreg") -> dict[str, str]:
     """Run name -> design ID (``F1``...), plus ``ref`` for ``group_prior``."""
     ids = {"group_prior": "ref"}
     for design, run in DESIGN_RUNS.items():
-        for name in [run] if isinstance(run, str) else [run(m) for m in models]:
+        single = run.__code__.co_argcount == 1
+        for name in [run(kind)] if single else [run(m, kind) for m in models]:
             ids[name] = design
     return ids
 
 
-def runs_table(stats: pd.DataFrame, within: pd.DataFrame | None = None) -> str:
-    """Markdown table of every run of one task, best mean AUROC first; with ``within``
-    (within-group AUROC per run), a second AUROC column."""
-    ids = design_ids()
-    header = "| Run | Design | AUROC |" + (" Within-centre AUROC |" if within is not None else "")
+def runs_table(
+    stats: pd.DataFrame,
+    within: pd.DataFrame | None = None,
+    kind: str = "logreg",
+    metric: str = "AUROC",
+) -> str:
+    """Markdown table of every run of one task, best mean first; with ``within``
+    (within-group metric per run), a second metric column."""
+    ids = design_ids(kind=kind)
+    header = f"| Run | Design | {metric} |"
+    header += f" Within-centre {metric} |" if within is not None else ""
     lines = [header, "|" + "---|" * header.count(" |")]
     for run, row in stats.sort_values("mean", ascending=False).iterrows():
         line = f"| `{run}` | {ids.get(run, '')} | {format_auroc(row)} |"
@@ -282,13 +339,18 @@ def render_block(spec: str) -> str:
         tasks = [t for t in match_tasks(args) if not within or task_groups(t) is not None]
         if not tasks:
             return "No results yet."
-        return design_table({task: auroc_summary(task, within) for task in tasks})
+        return design_table(
+            {task: auroc_summary(task, within) for task in tasks},
+            kinds={task: probe_kind(task) for task in tasks},
+            headers={t: f"{t} ({metric_label(t)})" for t in tasks if metric_label(t) != "AUROC"},
+        )
     if kind == "runs" and len(args) == 1:
-        stats = auroc_stats(args[0])
+        task = args[0]
+        stats = auroc_stats(task)
         if not len(stats):
             return "No results yet."
-        has_groups = task_groups(args[0]) is not None
-        return runs_table(stats, auroc_stats(args[0], within_group=True) if has_groups else None)
+        within = auroc_stats(task, within_group=True) if task_groups(task) is not None else None
+        return runs_table(stats, within, kind=probe_kind(task), metric=metric_label(task))
     raise ValueError(f"Unknown generated block: {spec!r}")
 
 

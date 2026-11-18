@@ -19,6 +19,7 @@ dependencies = [
     "pyradiomics",
     "requests",
     "scikit-learn",
+    "scikit-survival>=0.28.0",
     "simpleitk>=2.3",
     "torch",
     "torchvision",

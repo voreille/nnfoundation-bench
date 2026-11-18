@@ -31,7 +31,8 @@ Next steps:
    scripts/run_probes.sh rsna_spine_fracture`.
 3. HECKTOR 2022 RFS (D26): prepare both modalities on the host; meanwhile write the Cox
    probe, the C-index (plain, within-centre) and the per-ROI poolings (GTVp, GTVn,
-   concatenation).
+   concatenation) are written (D27); then `scripts/run_probes.sh` on both tasks. Next:
+   PET + CT late fusion (M2-M4) and the official train -> test view.
 4. Fine-tuning baseline with glovita: `FOLDS=0 scripts/run_benchmark.sh hecktor_hpv_pet_gtvp`
    (design T1).
 5. Input-size designs S2-S7: add `--fov` / `--mode` to `nnfb-features extract`, then run
@@ -93,6 +94,7 @@ dataset to get a broad view. Each cell of the results grid gives test AUROC as
 | HECKTOR HPV (`hecktor_hpv_pet_gtvp`) | PET, CT (same patient, registered) | GTVp (dataset SEG) | PET, 192³ at 1 mm centred on the GTVp | centre only: `ref` row of the grid; target ≥ 0.99 |
 | MRNet (`mrnet_abnormal_*`) | sagittal T2 FS, coronal T1, axial PD FS (separate series, no shared geometry) | field of view | sagittal, 192³ at 1 mm (whole series) | MRNet paper (all 3 planes): abnormal 0.94, ACL 0.97, meniscus 0.85 (official test set, not comparable to our splits) |
 | KiTS Liver (`kits_liver`) | CT | liver (TotalSegmentator), often larger than 192 mm | CT, 192³ at 1 mm centred on the liver | about 5 test positives per split: noisy |
+| HECKTOR 2022 RFS (`hecktor2022_rfs_ct`, `hecktor2022_rfs_pet`) | CT, PET (same patient, same crop grid) | GTVp ∪ GTVn (dataset masks, labels kept) | CT or PET, 192³ at 1 mm centred on GTVp ∪ GTVn | survival: C-index, not AUROC (D27); 174 relapses in 827; challenge Task 2 winners about 0.68 on the test set (official split, not comparable to our splits) |
 | STOIC 2021 (`stoic_severe`, `stoic_covid`) | CT | lungs (TotalSegmentator, 3 mm masks, D18); wider than 192 mm | CT, 192³ at 1 mm centred on the lungs | 301/2000 severe, 1205/2000 COVID; STOIC challenge (severe, hidden test set): about 0.8 |
 
 Unless a row says otherwise:
@@ -100,6 +102,9 @@ Unless a row says otherwise:
 - **Frozen rows:** the probe is a logistic regression (D13).
 - **Several modalities:** embeddings are extracted per modality, each from its own
   single-channel task, then fused late (M2-M5, D14).
+
+`<p>` is the probe: `logreg`, or `cox` (ridge Cox, D27) on survival tasks, whose cells are
+C-index instead of AUROC.
 
 Status: **ready** = code exists (the grid below shows which tasks have run); **planned**
 = code still to write; **dropped** = not pursued (dropped rows leave the grids; their past
@@ -111,6 +116,9 @@ runs stay in the per-task runs tables).
 | F2 | Pooling (frozen) | Mean over the ROI, cells weighted by ROI fraction | `<m>_frozen_roi_mean_logreg` | MRNet n/a (ROI = FOV, same as F1 up to padding) | ready |
 | F3 | Pooling (frozen) | Mean over the ROI + 10 mm | `<m>_frozen_roi_margin_mean_logreg` | MRNet n/a | ready |
 | F4 | Pooling (frozen) | ROI mean over earlier CNN stages (16 mm, 8 mm cells); ViT n/a |  | all | planned |
+| F5 | Pooling (frozen, several ROIs) | Mean over the first ROI only (HECKTOR 2022: GTVp) | `<m>_frozen_gtvp_mean_<p>` | tasks with named ROIs (HECKTOR 2022) | ready |
+| F6 | Pooling (frozen, several ROIs) | Mean over the second ROI only (GTVn) | `<m>_frozen_gtvn_mean_<p>` | tasks with named ROIs | ready |
+| F7 | Pooling (frozen, several ROIs) | Concatenation of the per-ROI means (GTVp, GTVn), one probe; a missing ROI is imputed (train median). F2 is the union (one mean over GTVp ∪ GTVn) | `<m>_frozen_roi_concat_mean_<p>` | tasks with named ROIs | ready |
 | T1 | Adaptation | glovita full fine-tuning, paper recipe (D1) | `cnn_lr0.0003`, `vit_lr0.0001` | all | ready |
 | T1-last | Adaptation | Same runs as T1, evaluated at the last checkpoint (end of the cosine schedule) instead of the best val AUROC (D20) | `cnn_lr0.0003_last`, `vit_lr0.0001_last` | all | ready |
 | R1 | Baseline (handcrafted) | pyradiomics in the ROI, original image (107 features), same probe and splits (D21); one value per cell | `radiomics_original_logreg` | MRNet n/a (no ROI) | ready |
@@ -138,7 +146,7 @@ Results grids, one column per task with results. Generated from `outputs/results
 `uv run nnfb-predict table --update docs/progress.md`; do not edit by hand. `-` = not
 run yet; `ref` = `group_prior` (centre only), for tasks with centres.
 
-<!-- generated: design hecktor_* stoic_* -->
+<!-- generated: design hecktor_hpv_* stoic_* -->
 | ID | hecktor_hpv_pet_gtvp | stoic_covid | stoic_severe |
 |----|---|---|---|
 | F1 | 0.514 ± 0.061 / 0.765 ± 0.047 | 0.621 ± 0.014 / 0.787 ± 0.029 | 0.656 ± 0.023 / 0.760 ± 0.013 |
@@ -165,6 +173,12 @@ x 15 negatives), so these values are noisy.
 | T1-last | - / - |
 | R1 | 0.660 ± 0.100 |
 | ref | 0.500 ± 0.000 |
+<!-- end generated -->
+
+HECKTOR 2022 recurrence-free survival, **C-index** (D26, D27):
+
+<!-- generated: design hecktor2022_* -->
+No results yet.
 <!-- end generated -->
 
 LLD-MMRI, one column per MR phase (task `lld_mmri_malignant_<phase>`):
@@ -262,6 +276,16 @@ chosen on 10 val cases, tested on 51. Small, so expect noise.
 - E1 (leave-one-centre-out) is not workable on these centres: MDA is 30/31 positive, CHUM
   7/8, CHUV 1/4, so most held-out centres have no AUROC. Within-centre AUROC replaces it
   for HECKTOR.
+
+### hecktor2022_rfs_ct, hecktor2022_rfs_pet (C-index)
+
+<!-- generated: runs hecktor2022_rfs_pet -->
+No results yet.
+<!-- end generated -->
+
+<!-- generated: runs hecktor2022_rfs_ct -->
+No results yet.
+<!-- end generated -->
 
 ### stoic_severe
 
@@ -441,4 +465,10 @@ None yet.
   patients: masks on the CT grid (48 with one extra row or slice), PET in SUV, the
   GTVp ∪ GTVn union under 192 mm everywhere. Preprocessing can now keep the ROI labels in
   the exported mask and clamp intensities per task.
+- Survival probes (D27): ridge Cox (scikit-survival 0.28) with the penalty chosen on val
+  C-index, Harrell's and within-centre C-index, a survival `group_prior` (centre's events
+  per day of follow-up). New poolings for tasks with named ROIs: GTVp only (F5), GTVn only
+  (F6), concatenation (F7). Radiomics now always uses the union of the mask labels.
+  Smoke-tested end to end on 30 cases (CNN on CPU: CUDA does not initialise in the
+  container since its restart this morning); the smoke results were deleted.
 

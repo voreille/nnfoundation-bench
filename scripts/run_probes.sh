@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Frozen-feature probes (F1-F3) and the radiomics baseline (R1) for one prepared task,
+# Frozen-feature probes (F1-F3, plus F5-F7 on tasks with several named ROIs) and the
+# radiomics baseline (R1) for one prepared task,
 # then the design grid. Meant to run on the host, after `nnfb-data prepare TASK`.
 #
 #   scripts/run_probes.sh TASK

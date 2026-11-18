@@ -135,6 +135,7 @@ def make_task(modality: str) -> ClassificationTask:
         ),
         pad_value=CT_PAD_VALUE if ct else PET_PAD_VALUE,
         keep_roi_labels=True,
+        roi_names=((GTVP, "gtvp"), (GTVN, "gtvn")),
         # CT padding goes down to -16989 HU; clamp to air as for RSNA (D19).
         intensity_min=CT_PAD_VALUE if ct else None,
     )

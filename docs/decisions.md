@@ -445,3 +445,33 @@ Supersedes the R2-R5 rows of D21 and D22; R1 (107 original-image features, L2 pr
   - About 100 training patients are probably also in the HECKTOR HPV task (curated from
     HECKTOR 2022). Harmless as long as the two tasks are never trained together.
   - 20 CHB and 36 training patients have masks but no endpoint and are left out.
+
+## D27. Survival probe: ridge Cox and C-index; per-ROI poolings for several ROIs (active, 2026-11-18)
+- **Choice:**
+  - A task is a survival task when its `labels.csv` has `time` and `event`. Its probes
+    (frozen features and radiomics) are ridge Cox models (scikit-survival
+    `CoxPHSurvivalAnalysis`), with median imputation and standardisation as for the
+    logistic probe, fit on train, penalty alpha in 10^-1..10^5 chosen by val C-index.
+    Runs end in `_cox`.
+  - Metric: Harrell's C-index (`cindex` in metrics.json, the challenge metric), and a
+    within-centre C-index (comparable pairs from the same centre only, pooled), the
+    survival version of D24. `group_prior`: risk = the centre's events per day of
+    follow-up in train+val.
+  - For tasks whose mask keeps several named ROIs (D26), frozen features are also pooled
+    over each ROI (F5 GTVp, F6 GTVn; NaN when absent) and as the concatenation of the
+    per-ROI means (F7). F2 / F3 are the union. Radiomics (R1) uses the union.
+- **Why:**
+  - Cox is the standard linear survival model and keeps censored patients and timing; a
+    ridge penalty because features outnumber events (174 events, 320-1056 dimensions).
+  - Union vs per-ROI vs concatenation is the pooling question for multi-ROI tasks: one mean
+    over both lesions weighs them by volume; concatenation keeps them apart at twice the
+    dimension.
+- **Rejected:**
+  - Elastic-net Cox (Coxnet): L1 on top did not help on radiomics (D22, D25); can be added.
+  - Uno's C-index or time-dependent AUC: Harrell's is the challenge metric; censoring
+    differs by centre, so Uno's could be added later.
+  - Own Cox / C-index code: scikit-survival 0.28 installs with sklearn 1.9 / NumPy 2.5.
+- **Open:**
+  - Missing ROI (18% no GTVn, 6% no GTVp) imputed with the train median in F5-F7; an
+    indicator feature could carry "no nodes", which is prognostic.
+  - Per-ROI radiomics (GTVp, GTVn, concatenated) not done yet.

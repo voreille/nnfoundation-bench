@@ -50,6 +50,9 @@ class ClassificationTask:
     # so each ROI can be pooled on its own; the crop is still centred on their union.
     # False: the mask is binary (union).
     keep_roi_labels: bool = False
+    # Names of the kept ROI labels, e.g. ((1, "gtvp"), (2, "gtvn")): frozen features are
+    # then also pooled per ROI (``<name>_mean``) and as their concatenation.
+    roi_names: tuple[tuple[int, str], ...] = ()
     # Image values below this are set to it before z-scoring (e.g. CT scanner padding far
     # below air, D19). None: no clamping.
     intensity_min: float | None = None

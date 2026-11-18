@@ -24,6 +24,7 @@ from tqdm import tqdm
 from nnfoundation_bench.config import INTERIM_DATA_DIR, PROCESSED_DATA_DIR
 from nnfoundation_bench.datasets import get_task
 from nnfoundation_bench.modeling.features import probe_folds, task_labels
+from nnfoundation_bench.modeling.survival import probe_kind
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
@@ -46,7 +47,7 @@ FEATURE_SETS = {
 
 # Elastic-net L1 shares tried on val together with C (0 would be plain L2).
 ENET_L1_RATIOS = (0.1, 0.5, 0.9)
-CLASSIFIERS = ("logreg", "enet")
+CLASSIFIERS = ("logreg", "enet", "cox")
 
 
 def radiomics_dir(task: str, feature_set: str) -> Path:
@@ -106,12 +107,16 @@ def to_real(name: str, value) -> float:
 
 
 def extract_case(image: Path, mask: Path, settings: dict, image_types: dict) -> dict:
-    """All pyradiomics features of one case (diagnostics dropped). Empty ROI -> {}."""
+    """All pyradiomics features of one case (diagnostics dropped). Empty ROI -> {}.
+
+    The ROI is the union of all mask values (masks may keep labels, e.g. GTVp = 1 and
+    GTVn = 2, D26), binarised to ``label`` 1.
+    """
     import SimpleITK as sitk
     from radiomics import featureextractor
 
     logging.getLogger("radiomics").setLevel(logging.ERROR)
-    mask_image = sitk.ReadImage(mask)
+    mask_image = sitk.Cast(sitk.ReadImage(mask) > 0, sitk.sitkUInt8)
     if not sitk.GetArrayViewFromImage(mask_image).any():
         return {}
     extractor = featureextractor.RadiomicsFeatureExtractor(**settings)
@@ -199,13 +204,18 @@ def probe(
     corr_threshold: float | None = typer.Option(
         None, help="Drop redundant features: |Spearman rho| above this, fit per fold on train"
     ),
-    classifier: str = typer.Option(
-        "logreg", help="logreg (L2) or enet (elastic net, L1 share chosen on val)"
+    classifier: str | None = typer.Option(
+        None,
+        help="logreg (L2), enet (elastic net, L1 share chosen on val) or cox (ridge Cox); "
+        "default: cox for survival tasks, logreg otherwise",
     ),
 ) -> None:
-    """Logistic-regression probe on radiomics features, every fold."""
-    if classifier not in CLASSIFIERS:
-        raise typer.BadParameter(f"classifier must be one of {CLASSIFIERS}")
+    """Linear probe on radiomics features, every fold (ridge Cox on survival tasks)."""
+    kind = probe_kind(task)
+    classifier = classifier or kind
+    allowed = ("cox",) if kind == "cox" else ("logreg", "enet")
+    if classifier not in allowed:
+        raise typer.BadParameter(f"classifier for {task} must be one of {allowed}")
     cases, _, _ = task_labels(task)
     x, names = load_features(task, features, cases)
     missing = int(np.isnan(x).any(axis=1).sum())

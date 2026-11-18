@@ -56,6 +56,11 @@ code skips work that is already done.
 - `uv run nnfb-features extract <task> --model cnn|vit` then `probe <task> --model ...`:
   frozen-encoder features mean-pooled over the whole crop, the ROI and the ROI + 10 mm, and a
   logistic-regression probe per fold. Runs are named `<model>_frozen_<pooling>_logreg`.
+  Tasks with named ROIs (HECKTOR 2022: GTVp, GTVn) also pool per ROI and as their
+  concatenation (`gtvp_mean`, `gtvn_mean`, `roi_concat_mean`).
+- **Survival tasks** (`labels.csv` has `time`, `event`; HECKTOR 2022 RFS): every probe is a
+  ridge Cox model, runs end in `_cox`, and the metric is the C-index (`cindex`), plus a
+  within-centre C-index (D27). Code in `modeling/survival.py`.
 - `uv run nnfb-radiomics extract <task>` then `probe <task>`: pyradiomics baseline (107
   original-image features) in the ROI of the QC crops, same probe and splits as the
   embeddings (R1, `radiomics_original_logreg`). The filtered set (`--features filtered`) and
