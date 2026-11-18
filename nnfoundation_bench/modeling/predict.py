@@ -4,6 +4,7 @@ import json
 import re
 import subprocess
 import sys
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import Annotated
 
@@ -29,6 +30,25 @@ def binary_metrics(labels: np.ndarray, scores: np.ndarray) -> dict:
         "n": len(labels),
         "n_positive": int(labels.sum()),
     }
+
+
+def within_group_auroc(labels: np.ndarray, scores: np.ndarray, groups: np.ndarray) -> float:
+    """AUROC over (positive, negative) pairs from the same group only, pooled over groups.
+
+    A stratified Mann-Whitney statistic: each pair counts once, ties count 1/2. A score
+    that depends on the group alone (``group_prior``) gets exactly 0.5, so the group
+    shortcut is removed from the metric. NaN if no group holds both classes.
+    """
+    concordant, pairs = 0.0, 0
+    for group in np.unique(groups):
+        in_group = groups == group
+        pos = scores[in_group & (labels == 1)]
+        neg = scores[in_group & (labels == 0)]
+        if len(pos) and len(neg):
+            diff = pos[:, None] - neg[None, :]
+            concordant += (diff > 0).sum() + 0.5 * (diff == 0).sum()
+            pairs += diff.size
+    return concordant / pairs if pairs else float("nan")
 
 
 def evaluate_predictions(pred_path: Path) -> pd.DataFrame:
@@ -154,11 +174,39 @@ DESIGN_RUNS = {
 }
 
 
-def auroc_stats(task: str) -> pd.DataFrame:
-    """Test AUROC ``mean``, ``std`` and fold ``count`` per run of TASK (empty if none)."""
-    rows = [json.loads(p.read_text()) for p in (RESULTS_DIR / task).glob("*/fold*/metrics.json")]
+def task_groups(task: str) -> pd.Series | None:
+    """case_id -> group (e.g. centre) from labels.csv, or None if the task has no groups."""
+    path = PROCESSED_DATA_DIR / task / "labels.csv"
+    if not path.exists():
+        return None
+    labels = pd.read_csv(path, dtype={"case_id": str})
+    return labels.set_index("case_id")["group"] if "group" in labels else None
+
+
+def auroc_stats(task: str, within_group: bool = False) -> pd.DataFrame:
+    """Test AUROC ``mean``, ``std`` and fold ``count`` per run of TASK (empty if none).
+
+    ``within_group`` recomputes each fold's AUROC from its ``predictions.csv`` with
+    ``within_group_auroc`` (tasks with a ``group`` column; empty otherwise).
+    """
+    empty = pd.DataFrame(columns=["mean", "std", "count"])
+    if not within_group:
+        paths = (RESULTS_DIR / task).glob("*/fold*/metrics.json")
+        rows = [json.loads(p.read_text()) for p in paths]
+    elif (groups := task_groups(task)) is None:
+        return empty
+    else:
+        rows = []
+        for path in (RESULTS_DIR / task).glob("*/fold*/predictions.csv"):
+            cases = pd.read_csv(path, dtype={"case_id": str})
+            auroc = within_group_auroc(
+                cases["label"].to_numpy(),
+                cases["score"].to_numpy(),
+                cases["case_id"].map(groups).to_numpy(),
+            )
+            rows.append({"run": path.parent.parent.name, "auroc": auroc})
     if not rows:
-        return pd.DataFrame(columns=["mean", "std", "count"])
+        return empty
     return pd.DataFrame(rows).groupby("run")["auroc"].agg(["mean", "std", "count"])
 
 
@@ -168,9 +216,9 @@ def format_auroc(row: pd.Series, n_folds: int = 5) -> str:
     return f"{row['mean']:.3f} ± {row['std']:.3f}{folds}"
 
 
-def auroc_summary(task: str) -> pd.Series:
+def auroc_summary(task: str, within_group: bool = False) -> pd.Series:
     """``"mean ± std"`` test AUROC per run of TASK (empty if nothing is evaluated)."""
-    stats = auroc_stats(task)
+    stats = auroc_stats(task, within_group)
     return stats.apply(format_auroc, axis=1) if len(stats) else pd.Series(dtype=str)
 
 
@@ -198,32 +246,51 @@ def design_ids(models: tuple[str, ...] = ("cnn", "vit")) -> dict[str, str]:
     return ids
 
 
-def runs_table(stats: pd.DataFrame) -> str:
-    """Markdown table of every run of one task, best mean AUROC first."""
+def runs_table(stats: pd.DataFrame, within: pd.DataFrame | None = None) -> str:
+    """Markdown table of every run of one task, best mean AUROC first; with ``within``
+    (within-group AUROC per run), a second AUROC column."""
     ids = design_ids()
-    lines = ["| Run | Design | AUROC |", "|-----|--------|-------|"]
+    header = "| Run | Design | AUROC |" + (" Within-centre AUROC |" if within is not None else "")
+    lines = [header, "|" + "---|" * header.count(" |")]
     for run, row in stats.sort_values("mean", ascending=False).iterrows():
-        lines.append(f"| `{run}` | {ids.get(run, '')} | {format_auroc(row)} |")
+        line = f"| `{run}` | {ids.get(run, '')} | {format_auroc(row)} |"
+        if within is not None:
+            line += f" {format_auroc(within.loc[run]) if run in within.index else '-'} |"
+        lines.append(line)
     return "\n".join(lines)
 
 
-# Generated blocks in a markdown file:
-#   <!-- generated: design [tasks...] -->  ...  <!-- end generated -->
-#   <!-- generated: runs <task> -->        ...  <!-- end generated -->
+# Generated blocks in a markdown file (task patterns are shell globs, default: all):
+#   <!-- generated: design [patterns...] -->         ...  <!-- end generated -->
+#   <!-- generated: design-within [patterns...] -->  ...  <!-- end generated -->
+#   <!-- generated: runs <task> -->                  ...  <!-- end generated -->
+# design-within: within-centre AUROC, for the tasks that have a group column.
 GENERATED_BLOCK = re.compile(
     r"(?P<open><!-- generated: (?P<spec>[^>]*?) -->\n).*?(?P<close><!-- end generated -->)",
     re.DOTALL,
 )
 
 
+def match_tasks(patterns: list[str]) -> list[str]:
+    """Tasks with results whose name matches one of the glob ``patterns`` (all if none)."""
+    tasks = sorted(p.name for p in RESULTS_DIR.iterdir() if p.is_dir())
+    return [t for t in tasks if not patterns or any(fnmatch(t, p) for p in patterns)]
+
+
 def render_block(spec: str) -> str:
-    kind, *tasks = spec.split()
-    if kind == "design":
-        tasks = tasks or sorted(p.name for p in RESULTS_DIR.iterdir() if p.is_dir())
-        return design_table({task: auroc_summary(task) for task in tasks})
-    if kind == "runs" and len(tasks) == 1:
-        stats = auroc_stats(tasks[0])
-        return runs_table(stats) if len(stats) else "No results yet."
+    kind, *args = spec.split()
+    if kind in ("design", "design-within"):
+        within = kind == "design-within"
+        tasks = [t for t in match_tasks(args) if not within or task_groups(t) is not None]
+        if not tasks:
+            return "No results yet."
+        return design_table({task: auroc_summary(task, within) for task in tasks})
+    if kind == "runs" and len(args) == 1:
+        stats = auroc_stats(args[0])
+        if not len(stats):
+            return "No results yet."
+        has_groups = task_groups(args[0]) is not None
+        return runs_table(stats, auroc_stats(args[0], within_group=True) if has_groups else None)
     raise ValueError(f"Unknown generated block: {spec!r}")
 
 
@@ -235,12 +302,15 @@ def update_generated(text: str, render=render_block) -> str:
 @app.command()
 def table(
     tasks: Annotated[
-        list[str] | None, typer.Argument(help="Tasks (default: all with results)")
+        list[str] | None, typer.Argument(help="Task globs (default: all with results)")
     ] = None,
     update: Annotated[
         Path | None,
         typer.Option(help="Rewrite the generated blocks of this markdown file instead"),
     ] = None,
+    within: Annotated[
+        bool, typer.Option(help="Within-centre AUROC (tasks with a group column)")
+    ] = False,
 ) -> None:
     """Design-benchmark grid (markdown) from every task's results; ref = group_prior.
 
@@ -251,7 +321,8 @@ def table(
         update.write_text(update_generated(update.read_text()))
         logger.success(f"Updated the generated tables of {update}")
         return
-    typer.echo(render_block(" ".join(["design", *(tasks or [])])))
+    kind = "design-within" if within else "design"
+    typer.echo(render_block(" ".join([kind, *(tasks or [])])))
 
 
 if __name__ == "__main__":

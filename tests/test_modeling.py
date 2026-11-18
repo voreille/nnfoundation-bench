@@ -111,3 +111,24 @@ def test_runs_table_sorted_with_design_ids():
     assert lines[2] == "| `group_prior` | ref | 0.800 ± 0.020 |"
     assert lines[3] == "| `other_run` |  | 0.700 ± 0.030 (n=3) |"
     assert lines[4] == "| `cnn_frozen_mean_logreg` | F1 | 0.600 ± 0.010 |"
+
+
+def test_within_group_auroc_ignores_cross_group_pairs():
+    import numpy as np
+
+    from nnfoundation_bench.modeling.predict import within_group_auroc
+
+    groups = np.array(["a", "a", "a", "b", "b", "b"])
+    labels = np.array([1, 0, 0, 1, 1, 0])
+    # Group prior alone (constant within each group): exactly 0.5.
+    assert within_group_auroc(labels, np.array([0.9, 0.9, 0.9, 0.1, 0.1, 0.1]), groups) == 0.5
+    # Perfect within groups although group b scores are all below group a's.
+    scores = np.array([0.9, 0.5, 0.6, 0.3, 0.2, 0.1])
+    assert within_group_auroc(labels, scores, groups) == 1.0
+    # 4 pairs (a: 1x2, b: 2x1); one discordant pair in b.
+    scores = np.array([0.9, 0.5, 0.6, 0.3, 0.05, 0.1])
+    assert within_group_auroc(labels, scores, groups) == 0.75
+    # No group with both classes.
+    assert np.isnan(
+        within_group_auroc(np.array([1, 0]), np.array([0.1, 0.2]), np.array(["a", "b"]))
+    )

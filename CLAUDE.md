@@ -62,6 +62,8 @@ code skips work that is already done.
   `--classifier enet` (elastic net). Runs are named `radiomics_<features>[_corr<t>]_<logreg|enet>`.
 - `uv run nnfb-predict table [tasks...]`: the design-benchmark grid (markdown, cells `CNN / ViT`)
   from all results. `table --update docs/progress.md` rewrites every generated table there.
+  `table --within`: within-centre AUROC (pairs from the same `group` only; `group_prior` = 0.5,
+  D24), for tasks with centres. Read it next to plain AUROC on multi-centre tasks.
 - `scripts/run_probes.sh <task>` (host only): for a prepared task, extracts frozen features
   (CNN and ViT on two GPUs) and radiomics, fits every probe (F1-F3, R1-R5), prints the
   design grid. `RADIOMICS=""` skips radiomics (MRNet has no ROI). Settings in the header.

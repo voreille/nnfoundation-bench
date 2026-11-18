@@ -12,28 +12,27 @@ as input channels, ROI handling, and how to pool features within a ROI.
 
 **Target: HECKTOR HPV classification at AUROC ≥ 0.99.**
 
-## Current status (2026-11-17)
+## Current status (2026-11-18)
 
 | Task | Data | Pipeline | Results |
 |------|------|----------|---------|
 | `kits_liver` | 2/489 raw images downloaded | prepare, train and predict smoke-tested | none yet |
 | `hecktor_hpv_pet_gtvp` | 102 patients on the NAS, labels found | prepared: 102 cases, 52 positive, no failures | frozen probes, radiomics and centre-only reference done |
 | `mrnet_*` (9 tasks) | 1250 public exams on the NAS; all file sizes and 40 md5s checked | npy-to-NIfTI conversion and crop smoke-tested on 2 exams per plane | none yet |
-| `lld_mmri_malignant_*` (8 phases) | 498 patients x 8 series on the NAS, all files present | crop around the dataset lesion mask smoke-tested on 2 cases x 3 phases | none yet |
+| `lld_mmri_malignant_*` (8 phases) | 498 patients x 8 series on the NAS, all files present | all 8 prepared: 498 cases, 266 malignant, no failures, no missing ROI | frozen probes and radiomics done for all 8 |
 | `stoic_severe`, `stoic_covid` | 2000 scans | both prepared: 2000 cases, no failures; `stoic_covid` links the crops, features and radiomics of `stoic_severe` | frozen probes and radiomics done for both |
-| `rsna_spine_fracture` | 2019 studies unpacked on the NAS, checked (961 positive) | conversion, slice order and C1-C7 ROI smoke-tested on 3 studies | none yet |
+| `rsna_spine_fracture` | 2019 studies unpacked on the NAS, checked (961 positive) | prepare on the host stopped at 1792 of 2019 (tmux session killed 2026-11-18 08:13); rerun resumes | none yet |
 
 Next steps:
-1. Frozen probes and radiomics are done on HECKTOR and both STOIC tasks.
-2. Prepare on the host and run `scripts/run_probes.sh`: the 8 `lld_mmri_malignant_<phase>`
-   tasks first (own lesion masks), then `rsna_spine_fracture`. Check each `dataset.json`
-   for failed cases.
+1. Frozen probes and radiomics are done on HECKTOR, both STOIC tasks and the 8 LLD-MMRI
+   phases.
+2. RSNA: resume `prepare rsna_spine_fracture`, then `RADIOMICS="original"
+   scripts/run_probes.sh rsna_spine_fracture`.
 3. Fine-tuning baseline with glovita: `FOLDS=0 scripts/run_benchmark.sh hecktor_hpv_pet_gtvp`
    (design T1).
 4. Input-size designs S2-S7: add `--fov` / `--mode` to `nnfb-features extract`, then run
    the FOV sweep.
-5. LLD-MMRI: frozen probes per phase, then late fusion (D14, D15). It has lesion masks, so
-   it fits the ROI focus.
+5. LLD-MMRI late fusion over the phases (M2-M4, D14, D15): the single-phase probes are done.
 6. KiTS Liver full run (background, paper reproduction).
 7. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
    "pathology"). Each task needs about 12 GB in `data/processed`. See D12.
@@ -75,7 +74,17 @@ would trigger it. Move an item to "Next steps" when it is picked up.
   about 10x the compute of `original` (hours on STOIC's lung ROIs) and is only a baseline.
   *Trigger:* if on STOIC and LLD-MMRI it does not clearly beat `original` (R1) or the best
   embedding probe, keep R1 only and set `RADIOMICS="original"` as the script default.
-  STOIC severe: no gain (R2-R5 within noise of R1, all below the ViT). Waiting for LLD-MMRI.
+  STOIC severe: no gain (R2-R5 within noise of R1, all below the ViT). STOIC covid and
+  LLD-MMRI: R2-R5 at or below R1 on every task. HECKTOR is the only task where filtered
+  beats original, and only in plain AUROC: within-centre, R1 is best (0.66 vs 0.58-0.63).
+  **Trigger met (2026-11-18); waiting for the user's go to drop it.**
+- **Erase the centre from the features (LEACE, Belrose et al. 2023)** with a linear eraser
+  fit per fold on train, then probe. Within-centre AUROC (D24) already removes the centre
+  from the *metric*; LEACE would remove it from the *features*, which matters if centre-free
+  embeddings are wanted downstream. Needs shrinkage or PCA (41 train cases vs 768-1037
+  dims), and also removes real signal that correlates with the centre. *Trigger:* a model
+  with clearly better than 0.5 within-centre AUROC on HECKTOR, or a multi-centre task where
+  the embeddings feed our own pipeline.
 - **Radiomics filter ablation:** probe LoG and wavelet subsets separately from the cached
   features. On 1 mm-resampled PET (native ~4 mm), LoG 1 mm and the high-pass wavelets
   likely see interpolation, not texture.
@@ -131,11 +140,11 @@ Status: **ready** = code exists (the grid below shows which tasks have run); **p
 | M5 | Modality fusion (late) | Learned attention across the per-modality embeddings or token maps (needs `--save-maps` and a small trained head) |  | HECKTOR, MRNet, LLD-MMRI | planned |
 | E1 | Evaluation | Leave-one-centre-out (removes the centre shortcut, D9) |  | HECKTOR only (other tasks: single centre or no centre released) | planned |
 
-Results grid, one column per task with results. Generated from `outputs/results/` by
+Results grids, one column per task with results. Generated from `outputs/results/` by
 `uv run nnfb-predict table --update docs/progress.md`; do not edit by hand. `-` = not
 run yet; `ref` = `group_prior` (centre only), for tasks with centres.
 
-<!-- generated: design -->
+<!-- generated: design hecktor_* stoic_* -->
 | ID | hecktor_hpv_pet_gtvp | stoic_covid | stoic_severe |
 |----|---|---|---|
 | F1 | 0.514 ± 0.061 / 0.765 ± 0.047 | 0.621 ± 0.014 / 0.787 ± 0.029 | 0.656 ± 0.023 / 0.760 ± 0.013 |
@@ -149,6 +158,45 @@ run yet; `ref` = `group_prior` (centre only), for tasks with centres.
 | R4 | 0.817 ± 0.045 | 0.738 ± 0.017 | 0.755 ± 0.026 |
 | R5 | 0.810 ± 0.044 | 0.735 ± 0.019 | 0.753 ± 0.023 |
 | ref | 0.839 ± 0.011 | n/a | n/a |
+<!-- end generated -->
+
+**Within-centre AUROC** (D24), for tasks with centres: only (positive, negative) pairs from
+the same centre count, so the centre shortcut is removed and `ref` is 0.5 by construction.
+On HECKTOR a test split holds only 66-81 such pairs, more than half from CHUP (3 positives
+x 15 negatives), so these values are noisy.
+
+<!-- generated: design-within -->
+| ID | hecktor_hpv_pet_gtvp |
+|----|---|
+| F1 | 0.351 ± 0.087 / 0.490 ± 0.123 |
+| F2 | 0.431 ± 0.158 / 0.454 ± 0.036 |
+| F3 | 0.428 ± 0.131 / 0.502 ± 0.099 |
+| T1 | - / - |
+| T1-last | - / - |
+| R1 | 0.660 ± 0.100 |
+| R2 | 0.583 ± 0.076 |
+| R3 | 0.620 ± 0.061 |
+| R4 | 0.626 ± 0.118 |
+| R5 | 0.628 ± 0.123 |
+| ref | 0.500 ± 0.000 |
+<!-- end generated -->
+
+LLD-MMRI, one column per MR phase (task `lld_mmri_malignant_<phase>`):
+
+<!-- generated: design lld_mmri_* -->
+| ID | lld_mmri_malignant_arterial | lld_mmri_malignant_delay | lld_mmri_malignant_dwi | lld_mmri_malignant_inphase | lld_mmri_malignant_outphase | lld_mmri_malignant_pre | lld_mmri_malignant_t2 | lld_mmri_malignant_venous |
+|----|---|---|---|---|---|---|---|---|
+| F1 | 0.546 ± 0.023 / 0.668 ± 0.082 | 0.548 ± 0.013 / 0.664 ± 0.060 | 0.546 ± 0.021 / 0.696 ± 0.056 | 0.512 ± 0.031 / 0.703 ± 0.055 | 0.562 ± 0.047 / 0.695 ± 0.062 | 0.532 ± 0.057 / 0.693 ± 0.049 | 0.553 ± 0.023 / 0.667 ± 0.056 | 0.522 ± 0.031 / 0.640 ± 0.071 |
+| F2 | 0.553 ± 0.033 / 0.746 ± 0.025 | 0.554 ± 0.046 / 0.867 ± 0.014 | 0.579 ± 0.021 / 0.748 ± 0.034 | 0.533 ± 0.046 / 0.760 ± 0.028 | 0.499 ± 0.031 / 0.697 ± 0.022 | 0.558 ± 0.034 / 0.729 ± 0.033 | 0.570 ± 0.023 / 0.808 ± 0.020 | 0.524 ± 0.024 / 0.837 ± 0.021 |
+| F3 | 0.547 ± 0.022 / 0.716 ± 0.040 | 0.557 ± 0.052 / 0.778 ± 0.009 | 0.573 ± 0.025 / 0.758 ± 0.014 | 0.565 ± 0.011 / 0.744 ± 0.024 | 0.516 ± 0.028 / 0.696 ± 0.035 | 0.544 ± 0.017 / 0.703 ± 0.022 | 0.560 ± 0.017 / 0.769 ± 0.025 | 0.504 ± 0.045 / 0.749 ± 0.019 |
+| T1 | - / - | - / - | - / - | - / - | - / - | - / - | - / - | - / - |
+| T1-last | - / - | - / - | - / - | - / - | - / - | - / - | - / - | - / - |
+| R1 | 0.786 ± 0.040 | 0.823 ± 0.045 | 0.687 ± 0.037 | 0.739 ± 0.034 | 0.709 ± 0.026 | 0.705 ± 0.035 | 0.755 ± 0.037 | 0.828 ± 0.029 |
+| R2 | 0.753 ± 0.024 | 0.798 ± 0.033 | 0.685 ± 0.039 | 0.702 ± 0.013 | 0.687 ± 0.036 | 0.685 ± 0.025 | 0.757 ± 0.037 | 0.810 ± 0.030 |
+| R3 | 0.756 ± 0.023 | 0.787 ± 0.025 | 0.663 ± 0.048 | 0.687 ± 0.009 | 0.673 ± 0.031 | 0.672 ± 0.019 | 0.747 ± 0.033 | 0.791 ± 0.029 |
+| R4 | 0.764 ± 0.027 | 0.824 ± 0.016 | 0.684 ± 0.051 | 0.706 ± 0.010 | 0.678 ± 0.030 | 0.694 ± 0.035 | 0.753 ± 0.034 | 0.810 ± 0.032 |
+| R5 | 0.756 ± 0.023 | 0.808 ± 0.021 | 0.662 ± 0.041 | 0.689 ± 0.012 | 0.685 ± 0.046 | 0.677 ± 0.024 | 0.739 ± 0.046 | 0.784 ± 0.041 |
+| ref | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
 <!-- end generated -->
 
 ### FOV sweep (designs S2-S5)
@@ -181,23 +229,23 @@ under them are written by hand.
 ### hecktor_hpv_pet_gtvp
 
 <!-- generated: runs hecktor_hpv_pet_gtvp -->
-| Run | Design | AUROC |
-|-----|--------|-------|
-| `group_prior` | ref | 0.839 ± 0.011 |
-| `radiomics_filtered_enet` | R4 | 0.817 ± 0.045 |
-| `radiomics_filtered_corr0.9_logreg` | R3 | 0.814 ± 0.017 |
-| `radiomics_filtered_corr0.9_enet` | R5 | 0.810 ± 0.044 |
-| `radiomics_filtered_logreg` | R2 | 0.786 ± 0.008 |
-| `vit_frozen_mean_logreg` | F1 | 0.765 ± 0.047 |
-| `radiomics_original_logreg` | R1 | 0.744 ± 0.053 |
-| `vit_frozen_roi_margin_mean_logreg` | F3 | 0.742 ± 0.015 |
-| `vit_frozen_roi_mean_logreg` | F2 | 0.710 ± 0.058 |
-| `radiomics_original_corr0.9_logreg` |  | 0.706 ± 0.047 |
-| `radiomics_original_enet` |  | 0.689 ± 0.109 |
-| `radiomics_original_corr0.9_enet` |  | 0.679 ± 0.102 |
-| `cnn_frozen_mean_logreg` | F1 | 0.514 ± 0.061 |
-| `cnn_frozen_roi_margin_mean_logreg` | F3 | 0.498 ± 0.050 |
-| `cnn_frozen_roi_mean_logreg` | F2 | 0.459 ± 0.053 |
+| Run | Design | AUROC | Within-centre AUROC |
+|---|---|---|---|
+| `group_prior` | ref | 0.839 ± 0.011 | 0.500 ± 0.000 |
+| `radiomics_filtered_enet` | R4 | 0.817 ± 0.045 | 0.626 ± 0.118 |
+| `radiomics_filtered_corr0.9_logreg` | R3 | 0.814 ± 0.017 | 0.620 ± 0.061 |
+| `radiomics_filtered_corr0.9_enet` | R5 | 0.810 ± 0.044 | 0.628 ± 0.123 |
+| `radiomics_filtered_logreg` | R2 | 0.786 ± 0.008 | 0.583 ± 0.076 |
+| `vit_frozen_mean_logreg` | F1 | 0.765 ± 0.047 | 0.490 ± 0.123 |
+| `radiomics_original_logreg` | R1 | 0.744 ± 0.053 | 0.660 ± 0.100 |
+| `vit_frozen_roi_margin_mean_logreg` | F3 | 0.742 ± 0.015 | 0.502 ± 0.099 |
+| `vit_frozen_roi_mean_logreg` | F2 | 0.710 ± 0.058 | 0.454 ± 0.036 |
+| `radiomics_original_corr0.9_logreg` |  | 0.706 ± 0.047 | 0.628 ± 0.150 |
+| `radiomics_original_enet` |  | 0.689 ± 0.109 | 0.604 ± 0.105 |
+| `radiomics_original_corr0.9_enet` |  | 0.679 ± 0.102 | 0.562 ± 0.117 |
+| `cnn_frozen_mean_logreg` | F1 | 0.514 ± 0.061 | 0.351 ± 0.087 |
+| `cnn_frozen_roi_margin_mean_logreg` | F3 | 0.498 ± 0.050 | 0.428 ± 0.131 |
+| `cnn_frozen_roi_mean_logreg` | F2 | 0.459 ± 0.053 | 0.431 ± 0.158 |
 <!-- end generated -->
 
 Frozen probes (D13), extracted on 2026-11-13: logistic regression on 40 train cases, C
@@ -223,12 +271,21 @@ chosen on 10 val cases, tested on 51. Small, so expect noise.
   original ones.
 - Nothing beats `group_prior` (0.84). Image features may partly encode the centre too; the
   leave-one-centre-out evaluation (E1) is needed to tell.
+- **Within-centre AUROC (2026-11-18, D24): the frozen embeddings carry no HPV signal
+  beyond the centre.** CNN and ViT probes drop to 0.35-0.50, i.e. chance: their 0.71-0.77
+  was the centre shortcut. Radiomics keeps some (R1 0.66, R2-R5 0.58-0.63), and the
+  original set now beats the filtered one, so the filtered set's gain in plain AUROC was
+  centre signal too. With 66-81 pairs per split, the std is 0.04-0.16: read only the
+  ordering, not the decimals.
+- E1 (leave-one-centre-out) is not workable on these centres: MDA is 30/31 positive, CHUM
+  7/8, CHUV 1/4, so most held-out centres have no AUROC. Within-centre AUROC replaces it
+  for HECKTOR.
 
 ### stoic_severe
 
 <!-- generated: runs stoic_severe -->
 | Run | Design | AUROC |
-|-----|--------|-------|
+|---|---|---|
 | `vit_frozen_roi_mean_logreg` | F2 | 0.778 ± 0.008 |
 | `vit_frozen_roi_margin_mean_logreg` | F3 | 0.776 ± 0.009 |
 | `vit_frozen_mean_logreg` | F1 | 0.760 ± 0.013 |
@@ -259,7 +316,7 @@ Frozen probes and radiomics, 2026-11-17: 800 train, 200 val, 1000 test cases per
 
 <!-- generated: runs stoic_covid -->
 | Run | Design | AUROC |
-|-----|--------|-------|
+|---|---|---|
 | `vit_frozen_roi_mean_logreg` | F2 | 0.814 ± 0.012 |
 | `vit_frozen_roi_margin_mean_logreg` | F3 | 0.808 ± 0.017 |
 | `vit_frozen_mean_logreg` | F1 | 0.787 ± 0.029 |
@@ -281,6 +338,20 @@ the label and the stratified splits differ. 1205 of 2000 positive.
 - Same ordering as severe, with a wider gap: ViT ROI mean about 0.81 vs radiomics about
   0.73-0.74. ROI pooling again beats the whole crop for both encoders.
 - Here the filtered radiomics set is slightly *worse* than `original` (R2, R3 vs R1).
+
+### lld_mmri_malignant_*
+
+Grid above (`design lld_mmri_*`). 498 lesions, 266 malignant; 199 train, 50 val, 249 test
+per split. Single-phase probes, 2026-11-17.
+- **ROI pooling is the big win:** ViT whole crop 0.64-0.70 → ROI mean (F2) 0.70-0.87. A
+  lesion of a few cm in a 192 mm crop is a small part of the whole-crop mean.
+- **Best embedding: ViT ROI mean on the delayed phase (0.867), then venous (0.837) and T2
+  (0.808).** On delay and venous it is above or level with the best radiomics (R1 0.823,
+  0.828). F3 (ROI + 10 mm) is below F2 on most phases: the liver around the lesion dilutes.
+- **CNN at chance on every phase** (0.50-0.58), as on HECKTOR.
+- **Filtered radiomics never beats original:** R2-R5 at or below R1 on all 8 phases.
+- Late fusion over phases (M2-M4) is the natural next step: the best phases differ
+  between the ViT (delay, venous, T2) and radiomics (venous, delay, arterial).
 
 ### kits_liver
 
@@ -369,4 +440,16 @@ None yet.
 - Layout (D23): results and logs moved from `reports/` to `outputs/` (not versioned);
   `reports/` keeps only what people read. Result tables in this file are now generated
   blocks, rebuilt with `uv run nnfb-predict table --update docs/progress.md`.
+
+### 2026-11-18
+- LLD-MMRI: all 8 phases prepared and probed on the host (see Results). ViT ROI pooling
+  reaches 0.867 on the delayed phase; the CNN is at chance.
+- RSNA prepare stopped at 1792 of 2019 studies when the host's tmux session was killed
+  (cause under investigation on the host). Finished cases are cached, so a rerun resumes.
+- Added within-centre AUROC (D24): `nnfb-predict table --within`, a `design-within`
+  generated grid, and a second AUROC column in the runs tables of tasks with centres. It
+  is computed from the existing `predictions.csv`, so nothing was rerun. On HECKTOR it
+  shows the frozen embeddings at chance once the centre is removed. LEACE parked in the
+  backlog; E1 judged unworkable on HECKTOR.
+- The trigger for dropping the filtered radiomics set is met (backlog).
 

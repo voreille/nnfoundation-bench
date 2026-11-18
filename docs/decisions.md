@@ -372,3 +372,28 @@ Supersedes the results location in D13 (`reports/results/`) and the versioning o
 - **Rejected:** keeping results in git for history: the generated tables in the docs
   carry the numbers that matter, and git history of the docs keeps them.
 - **Open:** results now exist on one disk only; back up `outputs/` if it matters.
+
+## D24. Within-centre AUROC as the confound-free metric for multi-centre tasks (active, 2026-11-18)
+Extends D9 and replaces its open item (leave-one-centre-out) for HECKTOR.
+- **Choice:** for tasks with a `group` column, also report a within-group AUROC: the
+  fraction of correctly ranked (positive, negative) pairs, counting only pairs from the
+  same group, pooled over groups (a stratified Mann-Whitney statistic; ties count 1/2).
+  It is computed per fold from the existing `predictions.csv` and the groups in
+  `labels.csv`, so it applies to every past and future run without rerunning. Shown by
+  `nnfb-predict table --within`, the `design-within` generated grid, and a second column in
+  the `runs <task>` tables.
+- **Why:** a score that depends on the group alone (`group_prior`) gets exactly 0.5, so
+  the centre shortcut is removed from the metric itself. Plain AUROC stays the main metric
+  (paper protocol); the within-centre one says how much of it is not the centre.
+- **Rejected:**
+  - AUROC per centre, averaged: on HECKTOR, MDA (30/31 positive), CHUM (7/8) and CHUV (1/4)
+    have one case of a class or less in a test split, so most per-centre AUROCs are
+    undefined or rest on 1-2 cases. Pair pooling uses whatever pairs exist.
+  - Leave-one-centre-out (E1) on HECKTOR: same problem, held-out MDA would be 30 positives
+    against 1 negative. Kept as a design for better-balanced multi-centre data.
+  - LEACE concept erasure as the metric fix: it changes the features, not the evaluation,
+    needs shrinkage at 41 train cases, and also removes real signal correlated with the
+    centre. Parked in the backlog for centre-free features.
+- **Open:** on HECKTOR a test split holds only 66-81 within-centre pairs, more than half
+  from CHUP, so the metric is noisy (std 0.04-0.16).
+
