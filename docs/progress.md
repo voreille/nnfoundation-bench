@@ -22,6 +22,7 @@ as input channels, ROI handling, and how to pool features within a ROI.
 | `lld_mmri_malignant_*` (8 phases) | 498 patients x 8 series on the NAS, all files present | all 8 prepared: 498 cases, 266 malignant, no failures, no missing ROI | frozen probes and radiomics done for all 8 |
 | `stoic_severe`, `stoic_covid` | 2000 scans | both prepared: 2000 cases, no failures; `stoic_covid` links the crops, features and radiomics of `stoic_severe` | frozen probes and radiomics done for both |
 | `rsna_spine_fracture` | 2019 studies unpacked on the NAS, checked (961 positive) | prepare on the host stopped at 1792 of 2019 (tmux session killed 2026-11-18 08:13); rerun resumes | none yet |
+| `upenn_os_*` (4 sequences) | 452 patients on the NAS (`UPENN_GBM`) + OS labels placed by hand (`GBM-UPENN-OS`), all 4 sequences, a mask for each (145 expert) | prepare smoke-tested on 4 cases; full prepare to run on the host (D29) | none yet |
 | `brats_gbm_*` (4 sequences) | 1809 scans on the NAS, 1621 with seg; metadata xlsx read | all 4 prepared on the host: 632 cases, 384 GBM, no failures, no missing ROI; identical labels and splits (D26) | probes, radiomics, site and age references, fusion (`brats_gbm_fused`) done |
 
 Next steps:
@@ -29,15 +30,17 @@ Next steps:
    phases.
 2. BraTS: age references and fusion done. Next: a generated age-and-site stratified AUROC
    (see Results) and age-adjusted probes (D27 open).
-3. RSNA: resume `prepare rsna_spine_fracture`, then `RADIOMICS="original"
+3. UPENN survival: `prepare upenn_os_<t1|t1gd|t2|flair>` on the host, then
+   `scripts/run_probes.sh upenn_os_<seq>` (AUROC probes, age reference and Cox / C-index, D29, D30).
+4. RSNA: resume `prepare rsna_spine_fracture`, then `RADIOMICS="original"
    scripts/run_probes.sh rsna_spine_fracture`.
-4. Fine-tuning baseline with glovita: `FOLDS=0 scripts/run_benchmark.sh hecktor_hpv_pet_gtvp`
+5. Fine-tuning baseline with glovita: `FOLDS=0 scripts/run_benchmark.sh hecktor_hpv_pet_gtvp`
    (design T1).
-5. Input-size designs S2-S7: add `--fov` / `--mode` to `nnfb-features extract`, then run
+6. Input-size designs S2-S7: add `--fov` / `--mode` to `nnfb-features extract`, then run
    the FOV sweep.
-6. LLD-MMRI late fusion over the phases (M2-M4, D14, D15, D28): `nnfb-features fuse` is ready.
-7. KiTS Liver full run (background, paper reproduction).
-8. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
+7. LLD-MMRI late fusion over the phases (M2-M4, D14, D15, D28): `nnfb-features fuse` is ready.
+8. KiTS Liver full run (background, paper reproduction).
+9. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
    "pathology"). Each task needs about 12 GB in `data/processed`. See D12.
 
 ## Backlog
@@ -97,6 +100,7 @@ dataset to get a broad view. Each cell of the results grid gives test AUROC as
 | MRNet (`mrnet_abnormal_*`) | sagittal T2 FS, coronal T1, axial PD FS (separate series, no shared geometry) | field of view | sagittal, 192³ at 1 mm (whole series) | MRNet paper (all 3 planes): abnormal 0.94, ACL 0.97, meniscus 0.85 (official test set, not comparable to our splits) |
 | KiTS Liver (`kits_liver`) | CT | liver (TotalSegmentator), often larger than 192 mm | CT, 192³ at 1 mm centred on the liver | about 5 test positives per split: noisy |
 | STOIC 2021 (`stoic_severe`, `stoic_covid`) | CT | lungs (TotalSegmentator, 3 mm masks, D18); wider than 192 mm | CT, 192³ at 1 mm centred on the lungs | 301/2000 severe, 1205/2000 COVID; STOIC challenge (severe, hidden test set): about 0.8 |
+| UPENN-GBM survival (`upenn_os_*`) | T1, T1GD, T2, FLAIR (co-registered, one grid) | whole tumour (expert mask, else automatic) | each sequence, 192³ at 1 mm centred on the tumour | 1-year OS 226/452 (AUROC); C-index grid for the Cox probes; age reference |
 | BraTS 2024 glioma (`brats_gbm_*`) | t1c, t1n, t2f, t2w (co-registered, one grid) | whole tumour (dataset seg, labels 1+2+3) | each sequence, 192³ at 1 mm centred on the tumour | 384/632 GBM; 5 sites, GBM share 38-100% by site: `ref` row (site only) |
 
 Unless a row says otherwise:
@@ -437,6 +441,17 @@ Age and fusion, 2026-11-18:
 | `group_prior` | ref | 0.667 ± 0.001 | 0.500 ± 0.000 |
 <!-- end generated -->
 
+### upenn_os_*
+
+None yet. 452 patients, 226 survived 1 year; 180 train, 46 val, 226 test per split. AUROC
+(1-year OS), then the C-index of the Cox probes (D30):
+
+<!-- generated: design upenn_* -->
+<!-- end generated -->
+
+<!-- generated: cindex upenn_* -->
+<!-- end generated -->
+
 ### kits_liver
 
 None yet.
@@ -557,3 +572,8 @@ None yet.
   references and fusion (CNN, ViT, radiomics) run. Age alone 0.772, age + site 0.814; best
   ViT fused 0.885 (concat, whole crop), 0.844 within-centre (concat, ROI mean). Within the
   same site and age decade the ROI-pooled ViT keeps ~0.82, the whole-crop ViT drops to ~0.78.
+- UPENN-GBM survival added (D29): four tasks `upenn_os_<seq>`, 452 deceased patients (no
+  censoring), label = 1-year OS (226/226), `time`/`event`/`age` in labels.csv, ROI = expert
+  mask (145) else automatic (307). Cox probes with C-index (D30, `nnfb-cox`,
+  scikit-survival); `run_probes.sh` runs them for tasks with `time`/`event`. Prepare
+  smoke-tested on 4 cases (2 expert, 2 automatic masks): ROI fully inside, ~3 s per case.

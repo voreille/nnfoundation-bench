@@ -493,3 +493,48 @@ Implements M2-M4 of D14.
   mix with single-modality rows), and a separate data folder per fusion (duplicate labels).
 - **Open:** M4's stacker is fitted on val only (64 cases on BraTS, 50 on LLD-MMRI); on small
   tasks (HECKTOR, 10 val cases) it will be noisy. M5 (learned attention) still planned.
+
+## D29. UPENN-GBM overall survival: 1-year label plus time/event, one task per sequence (active, 2026-11-18)
+- **Fact:** UPENN-GBM (TCIA NIfTI release on the NAS, `data/raw/UPENN_GBM/`) has pre-operative
+  studies `UPENN-GBM-<n>_11` with T1, T1GD, T2 and FLAIR in the BraTS 2021 layout (240 x 240 x
+  155 at 1 mm, skull-stripped), expert-corrected tumour masks for some studies and automatic
+  masks for all (labels 1 necrosis, 2 edema, 4 enhancing). The survival labels are a
+  QuantImage2 export placed by hand in `data/raw/GBM-UPENN-OS/`: `outcome_QI_UPENN_os.csv`
+  (452 patients, `Time` in days, `Event`) and the clinical variables (age, IDH, MGMT,
+  resection). **Every patient has `Event = 1`**: the file holds deceased patients only, with
+  no censoring. Median survival 366 days.
+- **Choice:**
+  - Four tasks `upenn_os_<t1|t1gd|t2|flair>`, single-channel, identical labels and splits
+    (late fusion applies, D28). All 452 patients of the outcome file, pre-operative study.
+  - `label` = survived at least 365 days (226 / 226). ASSUMPTION, our binary view, so prepare,
+    the AUROC probes, radiomics and the tables work unchanged. `labels.csv` also keeps `time`,
+    `event` and `age` for the Cox probes (D30) and the age reference (D27).
+  - ROI = whole tumour (1+2+4): the expert-corrected mask where it exists (145 patients),
+    otherwise the automatic one (307). `mask_source` is recorded per case. Dice 0.94 between
+    the two on a checked case.
+  - Single centre: no `group`; splits stratify on the 1-year label.
+- **Why:** the user's target pipeline needs survival; UPENN is the largest cohort we have
+  with masks and survival, and pre-operative scans are the right input for prognosis.
+- **Rejected:** automatic masks for all (one source, but worse where an expert mask exists);
+  waiting for a survival-only pipeline before preparing (the crops do not depend on it).
+- **Open:** without censoring the cohort leaves out patients still alive, so long survivors
+  are under-represented. The user mentioned 416 studies; the file has 452 (all used).
+
+## D30. Cox probes with Harrell's C-index (active, 2026-11-18)
+- **Choice:** `nnfb-cox probe <task> --model cnn|vit|radiomics|covariates` fits, per fold, a
+  ridge Cox model (scikit-survival `CoxPHSurvivalAnalysis`) on the same cached features and
+  splits as the AUROC probes: median imputation, standardisation on train, ridge alpha from
+  1e-1 to 1e5 chosen by val C-index (as C is for the logistic probe). Test metric: Harrell's
+  C-index. Runs `<model>_frozen_<pooling>_cox`, `radiomics_original_cox`,
+  `covariates_age_cox`; metrics.json holds `cindex`, predictions.csv `time, event, risk`.
+  A `<!-- generated: cindex [patterns] -->` block gives the grid (rows F1-F3, R1, ref-age).
+  The AUROC tables skip Cox runs. `run_probes.sh` runs the Cox probes when labels.csv has
+  `time` and `event`. Dependency: scikit-survival 0.28 (adds ecos, osqp, numexpr; no version
+  change to existing packages).
+- **Why:** the user asked for C-index now rather than waiting for Valentin's survival code.
+  Ridge Cox is the survival analogue of the L2 logistic probe, so rows stay comparable.
+- **Rejected:** writing our own partial-likelihood fit (scikit-survival is the standard,
+  tested one); Uno's C (no censoring on UPENN, so Harrell's C is unbiased here).
+- **Open:** align with Valentin's `modeling/survival.py` when it is pushed (named
+  `cox_probe.py` / `nnfb-cox` here to avoid a merge clash). Fine-tuning for survival is not
+  covered (glovita trains classifiers only).

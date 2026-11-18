@@ -247,13 +247,16 @@ def auroc_stats(task: str, within_group: bool = False) -> pd.DataFrame:
     empty = pd.DataFrame(columns=["mean", "std", "count"])
     if not within_group:
         paths = (RESULTS_DIR / task).glob("*/fold*/metrics.json")
-        rows = [json.loads(p.read_text()) for p in paths]
+        # Cox runs (nnfb-cox) report a C-index instead and are left out here.
+        rows = [r for p in paths if "auroc" in (r := json.loads(p.read_text()))]
     elif (groups := task_groups(task)) is None:
         return empty
     else:
         rows = []
         for path in (RESULTS_DIR / task).glob("*/fold*/predictions.csv"):
             cases = pd.read_csv(path, dtype={"case_id": str})
+            if "score" not in cases:  # Cox runs: risk, not a class score
+                continue
             auroc = within_group_auroc(
                 cases["label"].to_numpy(),
                 cases["score"].to_numpy(),
@@ -277,19 +280,46 @@ def auroc_summary(task: str, within_group: bool = False) -> pd.Series:
     return stats.apply(format_auroc, axis=1) if len(stats) else pd.Series(dtype=str)
 
 
-def design_table(summaries: dict[str, pd.Series], models: tuple[str, ...] = ("cnn", "vit")) -> str:
+def design_table(
+    summaries: dict[str, pd.Series],
+    models: tuple[str, ...] = ("cnn", "vit"),
+    designs: dict | None = None,
+    ref: str | None = "group_prior",
+) -> str:
     """Markdown grid: one row per design, one column per task, cells ``CNN / ViT``
-    (one value for model-independent rows such as radiomics)."""
+    (one value for model-independent rows such as radiomics). ``designs`` defaults to
+    ``DESIGN_RUNS``; ``ref`` (last row) is left out when None."""
     lines = ["| ID | " + " | ".join(summaries) + " |", "|----|" + "---|" * len(summaries)]
-    for design, run in DESIGN_RUNS.items():
+    for design, run in (designs or DESIGN_RUNS).items():
         if isinstance(run, str):
             cells = [s.get(run, "-") for s in summaries.values()]
         else:
             cells = [" / ".join(s.get(run(m), "-") for m in models) for s in summaries.values()]
         lines.append(f"| {design} | " + " | ".join(cells) + " |")
-    cells = [s.get("group_prior", "n/a") for s in summaries.values()]
-    lines.append("| ref | " + " | ".join(cells) + " |")
+    if ref is not None:
+        cells = [s.get(ref, "n/a") for s in summaries.values()]
+        lines.append("| ref | " + " | ".join(cells) + " |")
     return "\n".join(lines)
+
+
+# C-index grid (``<!-- generated: cindex [patterns] -->``): Cox probes of nnfb-cox (D30).
+COX_DESIGN_RUNS = {
+    "F1": lambda m: f"{m}_frozen_mean_cox",
+    "F2": lambda m: f"{m}_frozen_roi_mean_cox",
+    "F3": lambda m: f"{m}_frozen_roi_margin_mean_cox",
+    "R1": "radiomics_original_cox",
+    "ref-age": "covariates_age_cox",
+}
+
+
+def cindex_summary(task: str) -> pd.Series:
+    """``"mean ± std"`` test C-index per Cox run of TASK (empty if none)."""
+    paths = (RESULTS_DIR / task).glob("*/fold*/metrics.json")
+    rows = [r for p in paths if "cindex" in (r := json.loads(p.read_text()))]
+    if not rows:
+        return pd.Series(dtype=str)
+    stats = pd.DataFrame(rows).groupby("run")["cindex"].agg(["mean", "std", "count"])
+    return stats.apply(format_auroc, axis=1)
 
 
 def design_ids(models: tuple[str, ...] = ("cnn", "vit")) -> dict[str, str]:
@@ -319,7 +349,9 @@ def runs_table(stats: pd.DataFrame, within: pd.DataFrame | None = None) -> str:
 #   <!-- generated: design [patterns...] -->         ...  <!-- end generated -->
 #   <!-- generated: design-within [patterns...] -->  ...  <!-- end generated -->
 #   <!-- generated: runs <task> -->                  ...  <!-- end generated -->
+#   <!-- generated: cindex [patterns...] -->         ...  <!-- end generated -->
 # design-within: within-centre AUROC, for the tasks that have a group column.
+# cindex: test C-index of the Cox probes (nnfb-cox), for tasks with survival labels.
 GENERATED_BLOCK = re.compile(
     r"(?P<open><!-- generated: (?P<spec>[^>]*?) -->\n).*?(?P<close><!-- end generated -->)",
     re.DOTALL,
@@ -340,6 +372,12 @@ def render_block(spec: str) -> str:
         if not tasks:
             return "No results yet."
         return design_table({task: auroc_summary(task, within) for task in tasks})
+    if kind == "cindex":
+        summaries = {t: cindex_summary(t) for t in match_tasks(args)}
+        summaries = {t: s for t, s in summaries.items() if len(s)}
+        if not summaries:
+            return "No results yet."
+        return design_table(summaries, designs=COX_DESIGN_RUNS, ref=None)
     if kind == "runs" and len(args) == 1:
         stats = auroc_stats(args[0])
         if not len(stats):

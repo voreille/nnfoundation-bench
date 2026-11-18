@@ -132,3 +132,10 @@ datasets" matches the 8 test rows; RSNA Spine and MRNet were used only for devel
 - Label (ASSUMPTION): glioblastoma vs astrocytoma or oligodendroglioma, from the metadata
   xlsx; Glioma NOS and Other excluded. Earliest scan per patient. Splits stratify on site x
   label.
+
+### `upenn_os_<sequence>` (not in the paper)
+- Data: UPENN-GBM (TCIA), pre-operative studies, BraTS 2021 layout (1 mm, skull-stripped).
+  One task per sequence (D29). Survival labels from a QuantImage2 export (452 deceased).
+- Crop centred on the whole tumour (labels 1+2+4): expert-corrected mask, else automatic.
+- Label (ASSUMPTION): overall survival >= 1 year for the AUROC probes; time and event for the
+  Cox probes (C-index, D30). The paper has no survival task.

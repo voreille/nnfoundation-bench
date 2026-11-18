@@ -12,6 +12,7 @@ from nnfoundation_bench.datasets.lld_mmri import LLD_MMRI_TASKS
 from nnfoundation_bench.datasets.mrnet import MRNET_TASKS
 from nnfoundation_bench.datasets.rsna_spine import RSNA_SPINE_FRACTURE
 from nnfoundation_bench.datasets.stoic import STOIC_TASKS
+from nnfoundation_bench.datasets.upenn_gbm import UPENN_OS_TASKS
 
 TASKS: dict[str, ClassificationTask] = {
     task.name: task
@@ -23,6 +24,7 @@ TASKS: dict[str, ClassificationTask] = {
         *STOIC_TASKS,
         RSNA_SPINE_FRACTURE,
         *BRATS_TASKS,
+        *UPENN_OS_TASKS,
     )
 }
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Frozen-feature probes (F1-F3) and the radiomics baseline (R1) for one prepared task,
-# then the design grid. Meant to run on the host, after `nnfb-data prepare TASK`.
+# confounder references, Cox probes for survival tasks, then the design grid.
+# Meant to run on the host, after `nnfb-data prepare TASK`.
 #
 #   scripts/run_probes.sh TASK
 #
@@ -66,6 +67,20 @@ if has_column age; then
   uv run nnfb-predict covariate-baseline "$TASK" --column age
   if has_column group; then
     uv run nnfb-predict covariate-baseline "$TASK" --column age --column group
+  fi
+fi
+
+# Survival tasks (labels.csv with time and event): Cox probes, C-index (D30)
+if has_column time && has_column event; then
+  echo "== Cox probes (C-index)"
+  for model in $MODELS; do
+    uv run nnfb-cox probe "$TASK" --model "$model"
+  done
+  if [[ " $RADIOMICS " == *" original "* ]]; then
+    uv run nnfb-cox probe "$TASK" --model radiomics
+  fi
+  if has_column age; then
+    uv run nnfb-cox probe "$TASK" --model covariates --column age
   fi
 fi
 
