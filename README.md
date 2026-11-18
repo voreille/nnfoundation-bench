@@ -21,6 +21,8 @@ uv run nnfb-features probe kits_liver --model cnn         # logistic-regression 
 uv run nnfb-predict summarize kits_liver                  # mean/std test AUROC over folds
 uv run nnfb-radiomics extract kits_liver                  # pyradiomics baseline in the ROI
 uv run nnfb-radiomics probe kits_liver --corr-threshold 0.9  # or --classifier enet
+uv run nnfb-predict covariate-baseline kits_liver --column age  # reference from covariates alone
+uv run nnfb-features fuse task_a task_b --name fused --model vit  # late fusion across modalities
 uv run nnfb-predict table                                 # design grid over all tasks (CNN / ViT)
 uv run pytest && uv run ruff check && uv run ruff format --check
 ```

@@ -1,5 +1,6 @@
 """Naming and locations of fine-tuning runs."""
 
+import json
 from pathlib import Path
 
 from nnfoundation_bench.config import FINETUNED_DIR, RESULTS_DIR
@@ -34,3 +35,20 @@ def run_dir(task: str, run: str) -> Path:
 
 def results_dir(task: str, run: str, fold: int) -> Path:
     return RESULTS_DIR / task / run / f"fold{fold}"
+
+
+def fusion_sources(task: str) -> list[str] | None:
+    """Source tasks of a fused task (``nnfb-features fuse``), or None for a plain task.
+
+    A fused task has no data/processed folder of its own; ``fuse`` records its sources in
+    ``outputs/results/<task>/fusion.json``.
+    """
+    path = RESULTS_DIR / task / "fusion.json"
+    return json.loads(path.read_text())["tasks"] if path.exists() else None
+
+
+def processed_task(task: str) -> str:
+    """Task whose data/processed folder holds TASK's labels and splits: TASK itself, or
+    the first source of a fused task (all sources share labels and splits)."""
+    sources = fusion_sources(task)
+    return sources[0] if sources else task

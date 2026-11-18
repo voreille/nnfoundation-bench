@@ -12,6 +12,7 @@ METADATA = pd.DataFrame(
         "Site": ["UCSF", "UCSF", "Duke", "Duke", "UCSD", "UCSF", "UCSF", "Indiana"],
         "Glioma type": ["Astrocytoma", "Astrocytoma", "Glioblastoma", "Glioblastoma",
                         "Oligodendroglioma ", "glioma NOS", "Other", "Glioblastoma"],
+        "Patient's Age": [30, 31, 60, 61, None, 50, 40, 70],
     }
 )  # fmt: skip
 
@@ -28,6 +29,8 @@ def test_earliest_scan_per_patient_and_type_mapping():
     assert labels["label"].tolist() == [0, 1, 0, 1]
     assert labels["group"].tolist() == ["UCSF", "Duke", "UCSD", "Indiana"]
     assert labels["stratum"].tolist() == ["UCSF_0", "Duke_1", "UCSD_0", "Indiana_1"]
+    # age of the chosen (earliest) scan; unknown stays NaN
+    assert labels["age"].tolist()[:2] == [30, 60] and labels["age"].isna().tolist()[2]
 
 
 def test_earliest_among_scans_with_segmentation():

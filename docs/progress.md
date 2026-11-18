@@ -27,15 +27,15 @@ as input channels, ROI handling, and how to pool features within a ROI.
 Next steps:
 1. Frozen probes and radiomics are done on HECKTOR, both STOIC tasks and the 8 LLD-MMRI
    phases.
-2. BraTS: age-only reference (age is in the metadata xlsx), then late fusion over the 4
-   sequences (M2-M4).
+2. BraTS: age references (D27) and late fusion over the 4 sequences (D28): code ready, to
+   run on the host (labels.csv must be rewritten with `age` first).
 3. RSNA: resume `prepare rsna_spine_fracture`, then `RADIOMICS="original"
    scripts/run_probes.sh rsna_spine_fracture`.
 4. Fine-tuning baseline with glovita: `FOLDS=0 scripts/run_benchmark.sh hecktor_hpv_pet_gtvp`
    (design T1).
 5. Input-size designs S2-S7: add `--fov` / `--mode` to `nnfb-features extract`, then run
    the FOV sweep.
-6. LLD-MMRI late fusion over the phases (M2-M4, D14, D15): the single-phase probes are done.
+6. LLD-MMRI late fusion over the phases (M2-M4, D14, D15, D28): `nnfb-features fuse` is ready.
 7. KiTS Liver full run (background, paper reproduction).
 8. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
    "pathology"). Each task needs about 12 GB in `data/processed`. See D12.
@@ -128,10 +128,12 @@ runs stay in the per-task runs tables).
 | I1 | Input | Other single modality: CT (HECKTOR), coronal or axial series (MRNet) |  | KiTS, STOIC n/a (CT only) | planned |
 | I3 | Input | ROI = GTVp ∪ GTVn |  | HECKTOR only | planned |
 | M1 | Modality fusion | Early fusion: modalities as channels on one grid, stem weights repeated / n (glovita). Not planned: we extract embeddings per modality (D14) |  | all | dropped |
-| M2 | Modality fusion (late) | Feature-level: per-modality embeddings concatenated, one probe |  | HECKTOR, MRNet, LLD-MMRI | planned |
-| M3 | Modality fusion (late) | Feature-level: mean of the per-modality embeddings (one encoder, so one space), one probe |  | HECKTOR, MRNet, LLD-MMRI | planned |
-| M4 | Modality fusion (late) | Score-level: one probe per modality, scores combined by a logistic regression fitted on val (the MRNet paper's scheme) |  | HECKTOR, MRNet, LLD-MMRI | planned |
+| M2 | Modality fusion (late) | Feature-level: per-modality embeddings concatenated, one probe (grid: ROI mean; D28) | `<m>_fused_concat_<pooling>_logreg` on a fused task | HECKTOR, MRNet, LLD-MMRI, BraTS | ready |
+| M3 | Modality fusion (late) | Feature-level: mean of the per-modality embeddings (one encoder, so one space), one probe (grid: ROI mean) | `<m>_fused_mean_<pooling>_logreg` | HECKTOR, MRNet, LLD-MMRI, BraTS | ready |
+| M4 | Modality fusion (late) | Score-level: one probe per modality, scores combined by a logistic regression fitted on val (the MRNet paper's scheme; grid: ROI mean) | `<m>_fused_stack_<pooling>_logreg` | HECKTOR, MRNet, LLD-MMRI, BraTS | ready |
 | M5 | Modality fusion (late) | Learned attention across the per-modality embeddings or token maps (needs `--save-maps` and a small trained head) |  | HECKTOR, MRNet, LLD-MMRI | planned |
+| ref-age | Reference | Age alone, same probe and splits (D27) | `covariates_age_logreg` | tasks with an `age` column (BraTS) | ready |
+| ref-age+site | Reference | Age and centre (one-hot), same probe | `covariates_age_group_logreg` | tasks with `age` and `group` | ready |
 | E1 | Evaluation | Leave-one-centre-out (removes the centre shortcut, D9) |  | HECKTOR only (other tasks: single centre or no centre released) | planned |
 
 Results grids, one column per task with results. Generated from `outputs/results/` by
@@ -376,6 +378,12 @@ Grids above (`design brats_*`, `design-within brats_*`). 632 patients, 384 GBM; 
 - **ViT beats radiomics on every sequence** (R1 0.76-0.78 plain, 0.70-0.75 within). The CNN is
   below radiomics (0.66-0.74), as on the other tasks.
 
+Late fusion over the 4 sequences (D28), every pooling and method, on the fused task
+`brats_gbm_fused` (AUROC, then within-centre AUROC):
+
+<!-- generated: runs brats_gbm_fused -->
+<!-- end generated -->
+
 ### kits_liver
 
 None yet.
@@ -489,3 +497,6 @@ None yet.
 - This server's `outputs/results/` holds only the BraTS runs (the other tasks ran in another
   workspace), so only the `brats_*` blocks were regenerated here. A full
   `table --update` needs all results in one `outputs/`.
+- BraTS: added the age references (D27, `nnfb-predict covariate-baseline`; `brats.py` now
+  writes `age`) and late fusion M2-M4 (D28, `nnfb-features fuse`, results under a fused task
+  name such as `brats_gbm_fused`). Unit-tested on synthetic data; real runs pending on the host.

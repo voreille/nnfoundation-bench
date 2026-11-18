@@ -15,7 +15,13 @@ from loguru import logger
 from sklearn.metrics import average_precision_score, roc_auc_score
 
 from nnfoundation_bench.config import PROCESSED_DATA_DIR, RESULTS_DIR
-from nnfoundation_bench.modeling.runs import eval_run_name, results_dir, run_dir, run_name
+from nnfoundation_bench.modeling.runs import (
+    eval_run_name,
+    processed_task,
+    results_dir,
+    run_dir,
+    run_name,
+)
 from nnfoundation_bench.weights import MODELS
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
@@ -127,7 +133,7 @@ def group_baseline(task: str) -> None:
     Needs a ``group`` column in labels.csv. Shows how much of a task is solvable from
     confounders; model AUROCs should be read against it.
     """
-    root = PROCESSED_DATA_DIR / task
+    root = PROCESSED_DATA_DIR / processed_task(task)
     labels = pd.read_csv(root / "labels.csv")
     if "group" not in labels:
         raise typer.Exit(f"{task} has no group column in labels.csv")
@@ -141,6 +147,48 @@ def group_baseline(task: str) -> None:
         metrics |= binary_metrics(cases["label"].to_numpy(), cases["score"].to_numpy())
         (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
         logger.info(f"group_prior fold {fold}: AUROC {metrics['auroc']:.4f}")
+
+
+def covariate_matrix(labels: pd.DataFrame, columns: list[str]) -> np.ndarray:
+    """Numeric columns as they are (NaN kept: the probe imputes the train median),
+    other columns one-hot encoded (e.g. ``group``)."""
+    parts = []
+    for column in columns:
+        values = labels[column]
+        if pd.api.types.is_numeric_dtype(values):
+            parts.append(values.to_numpy(dtype=float)[:, None])
+        else:
+            parts.append(pd.get_dummies(values.astype(str)).to_numpy(dtype=float))
+    return np.hstack(parts)
+
+
+def covariate_run_name(columns: list[str]) -> str:
+    return "covariates_" + "_".join(columns) + "_logreg"
+
+
+@app.command("covariate-baseline")
+def covariate_baseline(
+    task: str,
+    column: Annotated[
+        list[str] | None, typer.Option(help="labels.csv columns to use (default: age)")
+    ] = None,
+) -> None:
+    """Reference run from case covariates alone (e.g. age, or age and group).
+
+    Same probe and splits as the frozen features (L2 logistic regression, C chosen on
+    val). Run ``covariates_<columns>_logreg``; design rows ``ref-age`` and
+    ``ref-age+site`` (D27).
+    """
+    from nnfoundation_bench.modeling.features import probe_folds, task_labels
+
+    columns = column or ["age"]
+    labels = pd.read_csv(
+        PROCESSED_DATA_DIR / processed_task(task) / "labels.csv", dtype={"case_id": str}
+    ).set_index("case_id")
+    if missing := [c for c in columns if c not in labels]:
+        raise typer.Exit(f"{task}: no column {missing} in labels.csv")
+    cases, _, _ = task_labels(task)
+    probe_folds(task, covariate_run_name(columns), covariate_matrix(labels.loc[cases], columns))
 
 
 @app.command()
@@ -169,12 +217,21 @@ DESIGN_RUNS = {
     # R2-R5 (filtered set, correlation filter, elastic net) were dropped (D25); their past
     # runs still show in the runs tables.
     "R1": "radiomics_original_logreg",
+    # Late fusion of per-modality ROI-mean embeddings (D14, D28), on a fused task
+    # (``nnfb-features fuse``): concatenation, mean, score stacking on val.
+    "M2": lambda m: f"{m}_fused_concat_roi_mean_logreg",
+    "M3": lambda m: f"{m}_fused_mean_roi_mean_logreg",
+    "M4": lambda m: f"{m}_fused_stack_roi_mean_logreg",
+    # Confounder references from labels.csv covariates (D27); ``ref`` (group alone) is
+    # the last row of the grid.
+    "ref-age": "covariates_age_logreg",
+    "ref-age+site": "covariates_age_group_logreg",
 }
 
 
 def task_groups(task: str) -> pd.Series | None:
     """case_id -> group (e.g. centre) from labels.csv, or None if the task has no groups."""
-    path = PROCESSED_DATA_DIR / task / "labels.csv"
+    path = PROCESSED_DATA_DIR / processed_task(task) / "labels.csv"
     if not path.exists():
         return None
     labels = pd.read_csv(path, dtype={"case_id": str})

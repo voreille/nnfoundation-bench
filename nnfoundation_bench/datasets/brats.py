@@ -106,7 +106,7 @@ def glioma_labels(metadata: pd.DataFrame, cases: list[str]) -> pd.DataFrame:
     ``cases`` are the scans with a segmentation. Each patient keeps its earliest one, so
     no patient is in two splits and the shared split code applies unchanged.
     ``group`` = site, ``stratum`` = site x label: GBM share differs a lot by site
-    (Indiana: GBM only; UCSF: 80 of 297).
+    (Indiana: GBM only; UCSF: 80 of 297). ``age`` is a confounder reference, not a feature.
     """
     meta = metadata.set_index("BraTS Subject ID")
     if missing := sorted(set(cases) - set(meta.index)):
@@ -121,6 +121,8 @@ def glioma_labels(metadata: pd.DataFrame, cases: list[str]) -> pd.DataFrame:
             "case_id": chosen,
             "label": types.map(GLIOMA_LABELS).to_numpy(),
             "group": meta.loc[chosen, "Site"].to_numpy(),
+            # Age at the chosen scan (NaN if unknown), for the age-only reference (D27).
+            "age": pd.to_numeric(meta.loc[chosen, "Patient's Age"]).to_numpy(),
         }
     )
     if dropped := types[labels["label"].isna().to_numpy()].value_counts().to_dict():

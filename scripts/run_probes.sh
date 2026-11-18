@@ -54,9 +54,19 @@ for features in $RADIOMICS; do
   uv run nnfb-radiomics probe "$TASK" --features "$features"
 done
 
-# Confounder reference (e.g. centre alone) for tasks whose labels.csv has a group column
-if head -1 "${NNFB_DATA_DIR:-data}/processed/$TASK/labels.csv" | grep -q group; then
+# Confounder references from labels.csv columns: group (e.g. centre) alone, age alone, and
+# age with group (D9, D27).
+has_column() {
+  head -1 "${NNFB_DATA_DIR:-data}/processed/$TASK/labels.csv" | tr , '\n' | grep -qx "$1"
+}
+if has_column group; then
   uv run nnfb-predict group-baseline "$TASK"
+fi
+if has_column age; then
+  uv run nnfb-predict covariate-baseline "$TASK" --column age
+  if has_column group; then
+    uv run nnfb-predict covariate-baseline "$TASK" --column age --column group
+  fi
 fi
 
 echo "== Design grid"

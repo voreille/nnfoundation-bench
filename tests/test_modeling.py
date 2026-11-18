@@ -132,3 +132,43 @@ def test_within_group_auroc_ignores_cross_group_pairs():
     assert np.isnan(
         within_group_auroc(np.array([1, 0]), np.array([0.1, 0.2]), np.array(["a", "b"]))
     )
+
+
+def test_covariate_matrix_keeps_numeric_nan_and_one_hot_encodes_groups():
+    import numpy as np
+    import pandas as pd
+
+    from nnfoundation_bench.modeling.predict import covariate_matrix, covariate_run_name
+
+    labels = pd.DataFrame({"age": [50.0, None, 70.0], "group": ["A", "B", "A"]})
+    x = covariate_matrix(labels, ["age", "group"])
+    assert x.shape == (3, 3) and np.isnan(x[1, 0])
+    np.testing.assert_array_equal(x[:, 1:], [[1, 0], [0, 1], [1, 0]])
+    assert covariate_run_name(["age", "group"]) == "covariates_age_group_logreg"
+
+
+def test_design_table_has_fusion_and_covariate_reference_rows():
+    import pandas as pd
+
+    from nnfoundation_bench.modeling.predict import design_table
+
+    summary = pd.Series(
+        {"vit_fused_stack_roi_mean_logreg": "0.90 ± 0.01", "covariates_age_logreg": "0.80 ± 0.02"}
+    )
+    lines = design_table({"t": summary}).splitlines()
+    assert "| M4 | - / 0.90 ± 0.01 |" in lines
+    assert "| ref-age | 0.80 ± 0.02 |" in lines
+    assert lines[-1] == "| ref | n/a |"
+
+
+def test_fused_task_reads_labels_of_its_first_source(tmp_path, monkeypatch):
+    import json
+
+    from nnfoundation_bench.modeling import runs
+
+    monkeypatch.setattr(runs, "RESULTS_DIR", tmp_path)
+    assert runs.processed_task("plain") == "plain"
+    (tmp_path / "fused").mkdir()
+    (tmp_path / "fused" / "fusion.json").write_text(json.dumps({"tasks": ["a", "b"]}))
+    assert runs.fusion_sources("fused") == ["a", "b"]
+    assert runs.processed_task("fused") == "a"

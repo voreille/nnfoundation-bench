@@ -451,3 +451,45 @@ Supersedes the R2-R5 rows of D21 and D22; R1 (107 original-image features, L2 pr
   ~82% zero background, as with every other task (D3).
 - **Open:** a brain-centred crop (whole brain in view) as an input-size variant. Whether the
   site confound dominates as on HECKTOR: read plain and within-centre AUROC together.
+
+
+## D27. Covariate references: age alone, and age with centre (active, 2026-11-18)
+Extends D9 (centre-only reference).
+- **Choice:** `nnfb-predict covariate-baseline <task> --column age [--column group]` fits the
+  frozen-feature probe (D13: L2 logistic regression, balanced classes, C on val, same splits)
+  on `labels.csv` columns only. Numeric columns are used as they are (missing values get the
+  train median), others are one-hot encoded. Runs `covariates_<columns>_logreg`; design rows
+  `ref-age` and `ref-age+site`. `run_probes.sh` runs both when `labels.csv` has an `age`
+  column. BraTS writes `age` (at the chosen scan, missing for a few patients).
+- **Why:** on BraTS the whole-crop embedding is as good as the tumour ROI, and the crop shows
+  most of the brain. Age is visible there (atrophy, ventricles) and differs strongly between
+  GBM and IDH-mutant gliomas. The centre-only `ref` does not capture this; an age reference
+  says how much of the image AUROC age alone explains. Within-centre AUROC of `ref-age+site`
+  is that of age alone, since the centre term is constant within a centre.
+- **Rejected:** a raw age score without fitting: the probe gives the same ranking for one
+  column but also handles missing ages and several columns the same way as the other rows.
+- **Open:** subtracting age from the features (or adding it to the probe) to measure
+  imaging signal beyond age.
+
+## D28. Late fusion across modalities: concatenation, mean, score stacking (active, 2026-11-18)
+Implements M2-M4 of D14.
+- **Choice:** `nnfb-features fuse <task>... --name <fused> --model cnn|vit|radiomics` reads the
+  cached pooled features of single-modality tasks with identical `labels.json` and
+  `splits.json` (checked) and writes results under `outputs/results/<fused>/`, with
+  `fusion.json` naming the sources. A fused task has no data folder; its labels, splits
+  and groups are read from the first source, so `group-baseline`, `covariate-baseline`,
+  within-centre AUROC and the generated tables work on it.
+  - M2 `concat`: embeddings concatenated, one probe.
+  - M3 `mean`: mean of the embeddings (one encoder, one space), one probe. Not for
+    radiomics (different statistics per modality).
+  - M4 `stack`: one probe per modality (train, C on val), then a logistic regression on
+    their val score logits, applied to test. Val both picks C and fits the stacker.
+  - Every pooling is run; the design grid shows the ROI mean (F2), the per-task runs
+    table shows all. Radiomics: `radiomics_original_fused_<concat|stack>_logreg`.
+- **Why:** per-modality embeddings are what the pipeline caches (D14), so fusion is a
+  probe on cached features: minutes, no GPU. One fused name per task family keeps fusion
+  results next to the single-modality ones.
+- **Rejected:** writing fused runs into one of the source tasks' result folders (they would
+  mix with single-modality rows), and a separate data folder per fusion (duplicate labels).
+- **Open:** M4's stacker is fitted on val only (64 cases on BraTS, 50 on LLD-MMRI); on small
+  tasks (HECKTOR, 10 val cases) it will be noisy. M5 (learned attention) still planned.

@@ -3,7 +3,8 @@
 ``extract`` runs the frozen pretrained encoder once per prepared crop and pools its last
 feature map in several ways, using the ROI mask exported by ``prepare``. ``probe`` fits
 an L2 logistic regression per fold on one pooling and writes results in the same format
-as fine-tuned runs, so ``nnfb-predict summarize`` lists both.
+as fine-tuned runs, so ``nnfb-predict summarize`` lists both. ``fuse`` combines the
+features of several single-modality tasks of the same cases (late fusion, D14, D28).
 
 The encoder is built with glovita's ``nnFoundationEncoder`` (same weights and
 architecture as fine-tuning). glovita's head sees the mean of this feature map
@@ -20,9 +21,9 @@ import typer
 from loguru import logger
 from tqdm import tqdm
 
-from nnfoundation_bench.config import CROP_SIZE, PROCESSED_DATA_DIR
+from nnfoundation_bench.config import CROP_SIZE, PROCESSED_DATA_DIR, RESULTS_DIR
 from nnfoundation_bench.modeling.predict import binary_metrics
-from nnfoundation_bench.modeling.runs import results_dir
+from nnfoundation_bench.modeling.runs import processed_task, results_dir
 from nnfoundation_bench.weights import MODELS, get_checkpoint
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
@@ -230,8 +231,8 @@ def fit_probe(
 
 
 def task_labels(task: str) -> tuple[list[str], np.ndarray, list[dict]]:
-    """Sorted case IDs, their labels and the splits of a prepared task."""
-    root = PROCESSED_DATA_DIR / task
+    """Sorted case IDs, their labels and the splits of a prepared (or fused) task."""
+    root = PROCESSED_DATA_DIR / processed_task(task)
     labels = json.loads((root / "labels.json").read_text())
     splits = json.loads((root / "splits.json").read_text())
     cases = sorted(labels)
@@ -259,24 +260,27 @@ def probe_folds(
         idx = {k: np.array([index[c] for c in v]) for k, v in split.items()}
         cols = np.arange(x.shape[1]) if select is None else select(x[idx["train"]])
         scores, params, val_auc = fit_probe(x[:, cols], y, idx, l1_ratios=l1_ratios)
-        test = pd.DataFrame({"case_id": split["test"], "label": y[idx["test"]], "score": scores})
-        out_dir = results_dir(task, run, fold)
-        out_dir.mkdir(parents=True, exist_ok=True)
-        test.to_csv(out_dir / "predictions.csv", index=False)
-        metrics = {
-            "task": task,
-            "run": run,
-            "fold": fold,
+        info = {
             "probe_C": params["C"],
             "probe_l1_ratio": params["l1_ratio"],
             "num_features": len(cols),
             "val_auroc": val_auc,
         }
-        metrics |= binary_metrics(test["label"].to_numpy(), test["score"].to_numpy())
-        (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
-        aucs.append(metrics["auroc"])
+        aucs.append(save_fold(task, run, fold, split["test"], y[idx["test"]], scores, info))
     logger.info(f"{run}: test AUROC {np.nanmean(aucs):.4f} ± {np.nanstd(aucs, ddof=1):.4f}")
     return aucs
+
+
+def save_fold(task, run, fold, cases, labels, scores, info: dict) -> float:
+    """Write one fold's predictions.csv and metrics.json; returns the test AUROC."""
+    test = pd.DataFrame({"case_id": cases, "label": labels, "score": scores})
+    out_dir = results_dir(task, run, fold)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    test.to_csv(out_dir / "predictions.csv", index=False)
+    metrics = {"task": task, "run": run, "fold": fold} | info
+    metrics |= binary_metrics(test["label"].to_numpy(), test["score"].to_numpy())
+    (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
+    return metrics["auroc"]
 
 
 @app.command()
@@ -291,6 +295,100 @@ def probe(
     cases, _, _ = task_labels(task)
     for pool in pooling or POOLINGS:
         probe_folds(task, probe_run_name(model, pool), load_pooled(task, model, pool, cases))
+
+
+FUSIONS = ("concat", "mean", "stack")
+
+
+def fused_run_name(model: str, method: str, pooling: str | None) -> str:
+    """``vit_fused_concat_roi_mean_logreg``; radiomics: ``radiomics_original_fused_concat_logreg``."""
+    if model == "radiomics":
+        return f"radiomics_original_fused_{method}_logreg"
+    return f"{model}_fused_{method}_{pooling}_logreg"
+
+
+def check_same_cases(tasks: list[str]) -> None:
+    """Fusion needs identical labels and splits in every source task (D14)."""
+    files = [
+        [(PROCESSED_DATA_DIR / t / name).read_text() for name in ("labels.json", "splits.json")]
+        for t in tasks
+    ]
+    if any(f != files[0] for f in files[1:]):
+        raise typer.Exit(
+            f"labels.json / splits.json differ between {tasks}: fuse needs both equal"
+        )
+
+
+def stack_scores(val_scores: np.ndarray, y_val: np.ndarray, test_scores: np.ndarray) -> np.ndarray:
+    """Score-level fusion (M4): a logistic regression on the per-modality probe scores
+    (logits, one column per modality), fitted on val and applied to test."""
+    from scipy.special import logit
+    from sklearn.linear_model import LogisticRegression
+
+    def to_logit(s):
+        return logit(np.clip(s, 1e-6, 1 - 1e-6))
+
+    stacker = LogisticRegression(class_weight="balanced", max_iter=5000)
+    stacker.fit(to_logit(val_scores), y_val)
+    return stacker.predict_proba(to_logit(test_scores))[:, 1]
+
+
+def stack_folds(task: str, run: str, xs: list[np.ndarray]) -> list[float]:
+    """M4 on every fold: one probe per modality (``fit_probe``: train, C by val), then
+    ``stack_scores`` on their val scores. Val picks each probe's C and fits the stacker."""
+    cases, y, splits = task_labels(task)
+    index = {c: i for i, c in enumerate(cases)}
+    aucs = []
+    for fold, split in enumerate(splits):
+        idx = {k: np.array([index[c] for c in v]) for k, v in split.items()}
+        n_val = len(idx["val"])
+        both = {**idx, "test": np.concatenate([idx["val"], idx["test"]])}
+        scores = np.column_stack([fit_probe(x, y, both)[0] for x in xs])
+        test = stack_scores(scores[:n_val], y[idx["val"]], scores[n_val:])
+        info = {"num_modalities": len(xs)}
+        aucs.append(save_fold(task, run, fold, split["test"], y[idx["test"]], test, info))
+    logger.info(f"{run}: test AUROC {np.nanmean(aucs):.4f} ± {np.nanstd(aucs, ddof=1):.4f}")
+    return aucs
+
+
+@app.command()
+def fuse(
+    tasks: Annotated[list[str], typer.Argument(help="Single-modality tasks of the same cases")],
+    name: str = typer.Option(..., help="Name of the fused task in outputs/results/"),
+    model: str = typer.Option("vit", help=f"{', '.join(MODELS)} or radiomics (original set)"),
+    pooling: Annotated[
+        list[str] | None, typer.Option(help="Poolings to fuse (default: all; not radiomics)")
+    ] = None,
+    method: Annotated[
+        list[str] | None, typer.Option(help=f"Fusion methods (default: {', '.join(FUSIONS)})")
+    ] = None,
+) -> None:
+    """Late fusion across modalities (D14, D28): M2 concatenation, M3 mean of the
+    embeddings (one encoder, one space), M4 score stacking. Results go to
+    ``outputs/results/NAME/`` with ``fusion.json`` naming the source tasks."""
+    check_same_cases(tasks)
+    (RESULTS_DIR / name).mkdir(parents=True, exist_ok=True)
+    (RESULTS_DIR / name / "fusion.json").write_text(json.dumps({"tasks": tasks}, indent=2))
+    cases, _, _ = task_labels(name)
+    methods = method or list(FUSIONS)
+    if model == "radiomics":
+        from nnfoundation_bench.modeling.radiomics_baseline import load_features
+
+        groups = {None: [load_features(t, "original", cases)[0] for t in tasks]}
+        methods = [m for m in methods if m != "mean"]  # different features per modality
+    else:
+        groups = {p: [load_pooled(t, model, p, cases) for t in tasks] for p in pooling or POOLINGS}
+    for pool, xs in groups.items():
+        for m in methods:
+            run = fused_run_name(model, m, pool)
+            if m == "concat":
+                probe_folds(name, run, np.hstack(xs))
+            elif m == "mean":
+                probe_folds(name, run, np.mean(xs, axis=0))
+            elif m == "stack":
+                stack_folds(name, run, xs)
+            else:
+                raise typer.Exit(f"Unknown fusion method {m!r}: {FUSIONS}")
 
 
 if __name__ == "__main__":
