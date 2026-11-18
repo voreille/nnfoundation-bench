@@ -412,3 +412,36 @@ Supersedes the R2-R5 rows of D21 and D22; R1 (107 original-image features, L2 pr
   R1 (HECKTOR 0.68-0.71 vs 0.744).
 - **Rejected:** keeping the filtered set for the remaining tasks (RSNA, KiTS) "for
   completeness": hours of extraction for a baseline that has not helped anywhere.
+
+## D26. HECKTOR 2022 recurrence-free survival: train + test pooled, crop on GTVp ∪ GTVn (active, 2026-11-18)
+- **Choice:**
+  - Pool the HECKTOR 2022 training and test sets (the test ground truth is now public):
+    827 patients with an RFS endpoint, 174 relapses, 9 centres. Usual 5 x 40/10/50 splits,
+    stratified on centre x event. The official split is also written
+    (`splits_official.json`: train with 20% held out as val, test = the challenge test set)
+    for a later train -> test view.
+  - One single-channel task per modality, `hecktor2022_rfs_ct` and `hecktor2022_rfs_pet`
+    (late fusion, D14). 192³ at 1 mm centred on the bounding box of GTVp ∪ GTVn; the mask
+    is shared, so PET and CT crops land on the same grid.
+  - The exported mask keeps 1 = GTVp, 2 = GTVn (`keep_roi_labels`), so poolings over
+    GTVp, GTVn, their union or the concatenation of per-ROI means can be compared.
+  - CT clamped below at -1024 HU (padding down to -16989, as in D19); PET padded with 0.
+  - Target: RFS time (days) and relapse event, challenge Task 2. `label` = event, used for
+    stratification only. Evaluation: Cox probe and C-index (next decision).
+- **Why:**
+  - Survival power depends on events: the test set alone has 78 relapses (about 31 to fit
+    and 39 to test per split); pooled, 174.
+  - Every case has a GTVp or a GTVn, and the union fits in 192 mm (largest 179 mm), so one
+    protocol crop holds all lesions.
+  - Relapse rates differ by centre (CHB 5%, USZ 37%, others 12-34%): stratification and a
+    within-centre C-index are needed, as for HPV (D9, D24).
+- **Rejected:**
+  - Test set only: too few events.
+  - Official split only: one test set, no variance across splits; kept as a second view.
+  - Whole scans at 1 mm: only the planned FOV / tiling designs would use them.
+  - Binarised relapse at a fixed horizon with AUROC: drops patients censored early and the
+    timing. Would be needed only to fine-tune with glovita.
+- **Open:**
+  - About 100 training patients are probably also in the HECKTOR HPV task (curated from
+    HECKTOR 2022). Harmless as long as the two tasks are never trained together.
+  - 20 CHB and 36 training patients have masks but no endpoint and are left out.

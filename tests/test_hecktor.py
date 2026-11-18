@@ -5,6 +5,7 @@ import SimpleITK as sitk
 from nnfoundation_bench.datasets import get_task
 from nnfoundation_bench.datasets.base import CaseInputs
 from nnfoundation_bench.datasets.hecktor import (
+    HECKTOR_HPV_PET_GTVP,
     LABELS_HPV_COLUMN,
     LABELS_ID_COLUMN,
     hpv_labels,
@@ -56,7 +57,7 @@ def test_pet_crop_centred_on_ct_grid_mask(tmp_path):
 
     found = _process_case(
         CaseInputs(tmp_path / "pet.nii.gz", tmp_path / "gtvp.nii.gz"),
-        0.0, tmp_path / "out", tmp_path / "qc", "c",
+        HECKTOR_HPV_PET_GTVP, tmp_path / "out", tmp_path / "qc", "c",
     )  # fmt: skip
     assert found
     qc = sitk.GetArrayFromImage(sitk.ReadImage(tmp_path / "qc" / "images" / "c.nii.gz"))
@@ -64,4 +65,4 @@ def test_pet_crop_centred_on_ct_grid_mask(tmp_path):
     assert all(abs(p - 95.5) <= 2 for p in peak)
 
     no_roi = CaseInputs(tmp_path / "pet.nii.gz", None)
-    assert not _process_case(no_roi, 0.0, tmp_path / "out", tmp_path / "qc", "d")
+    assert not _process_case(no_roi, HECKTOR_HPV_PET_GTVP, tmp_path / "out", tmp_path / "qc", "d")

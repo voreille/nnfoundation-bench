@@ -21,6 +21,7 @@ as input channels, ROI handling, and how to pool features within a ROI.
 | `mrnet_*` (9 tasks) | 1250 public exams on the NAS; all file sizes and 40 md5s checked | npy-to-NIfTI conversion and crop smoke-tested on 2 exams per plane | none yet |
 | `lld_mmri_malignant_*` (8 phases) | 498 patients x 8 series on the NAS, all files present | all 8 prepared: 498 cases, 266 malignant, no failures, no missing ROI | frozen probes and radiomics done for all 8 |
 | `stoic_severe`, `stoic_covid` | 2000 scans | both prepared: 2000 cases, no failures; `stoic_covid` links the crops, features and radiomics of `stoic_severe` | frozen probes and radiomics done for both |
+| `hecktor2022_rfs_ct`, `hecktor2022_rfs_pet` | HECKTOR 2022 train + test on the NAS, all checked: 827 patients with RFS, 174 relapses, 9 centres | preprocessing smoke-tested on 5 cases (PET and CT crops on the same grid, labels 1/2 kept); survival probe to write | none yet |
 | `rsna_spine_fracture` | 2019 studies unpacked on the NAS, checked (961 positive) | prepare on the host stopped at 1792 of 2019 (tmux session killed 2026-11-18 08:13); rerun resumes | none yet |
 
 Next steps:
@@ -28,13 +29,16 @@ Next steps:
    phases.
 2. RSNA: resume `prepare rsna_spine_fracture`, then `RADIOMICS="original"
    scripts/run_probes.sh rsna_spine_fracture`.
-3. Fine-tuning baseline with glovita: `FOLDS=0 scripts/run_benchmark.sh hecktor_hpv_pet_gtvp`
+3. HECKTOR 2022 RFS (D26): prepare both modalities on the host; meanwhile write the Cox
+   probe, the C-index (plain, within-centre) and the per-ROI poolings (GTVp, GTVn,
+   concatenation).
+4. Fine-tuning baseline with glovita: `FOLDS=0 scripts/run_benchmark.sh hecktor_hpv_pet_gtvp`
    (design T1).
-4. Input-size designs S2-S7: add `--fov` / `--mode` to `nnfb-features extract`, then run
+5. Input-size designs S2-S7: add `--fov` / `--mode` to `nnfb-features extract`, then run
    the FOV sweep.
-5. LLD-MMRI late fusion over the phases (M2-M4, D14, D15): the single-phase probes are done.
-6. KiTS Liver full run (background, paper reproduction).
-7. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
+6. LLD-MMRI late fusion over the phases (M2-M4, D14, D15): the single-phase probes are done.
+7. KiTS Liver full run (background, paper reproduction).
+8. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
    "pathology"). Each task needs about 12 GB in `data/processed`. See D12.
 
 ## Backlog
@@ -432,4 +436,9 @@ None yet.
 - Dropped the filtered radiomics set and the R2-R5 rows (D25): `run_probes.sh` now runs
   `original` with the plain L2 probe only (R1). Removed from the backlog with it: the
   filter ablation item. Cached filtered features and past runs are kept.
+- Added HECKTOR 2022 (D26): training and test pooled for recurrence-free survival, one
+  task per modality (`hecktor2022_rfs_ct`, `hecktor2022_rfs_pet`). Checked all 883
+  patients: masks on the CT grid (48 with one extra row or slice), PET in SUV, the
+  GTVp ∪ GTVn union under 192 mm everywhere. Preprocessing can now keep the ROI labels in
+  the exported mask and clamp intensities per task.
 

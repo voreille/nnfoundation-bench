@@ -57,6 +57,7 @@ images are about 100 GB.
 | `lld_mmri_malignant_<pre\|arterial\|venous\|delay\|t2\|dwi\|inphase\|outphase>` | LLD-MMRI 2023 (MedSAM2 release), liver MR, one series per task | 498 (266 +) | liver lesion (dataset mask, per series) | malignant vs benign (our assumption) | code + smoke test on 2 cases x 3 phases |
 | `stoic_<severe\|covid>` | STOIC 2021 public training set, chest CT | 2000 | lungs (TotalSegmentator) | `probSevere` / `probCOVID` | code + smoke test on 1 case; download unfinished |
 | `rsna_spine_fracture` | RSNA 2022 cervical spine fracture (Kaggle zip), CT | 2019 | C1-C7 (TotalSegmentator) | `patient_overall` | code + unit tests only; download unfinished |
+| `hecktor2022_rfs_<ct\|pet>` | HECKTOR 2022 training + test (NIfTI), CT or PET (SUV), one task per modality | 827 with RFS (174 relapses), 9 centres | GTVp ∪ GTVn (dataset masks; mask keeps 1 = GTVp, 2 = GTVn) | recurrence-free survival (time, event) | code + smoke test on 5 cases |
 
 Progress and results: [docs/progress.md](docs/progress.md). Design decisions:
 [docs/decisions.md](docs/decisions.md). See [references/nnfoundation_protocol.md](references/nnfoundation_protocol.md) for

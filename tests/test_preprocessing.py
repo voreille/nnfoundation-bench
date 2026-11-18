@@ -145,3 +145,34 @@ def test_resample_isotropic_keeps_extent():
     low = resample_isotropic(image, 3.0)
     assert low.GetSize() == (102, 102, 67)
     assert low.GetSpacing() == (3.0, 3.0, 3.0) and low.GetOrigin() == image.GetOrigin()
+
+
+def test_binary_roi_can_keep_labels():
+    import numpy as np
+    import SimpleITK as sitk
+
+    from nnfoundation_bench.preprocessing import binary_roi
+
+    mask = sitk.GetImageFromArray(np.array([[[0, 1, 2, 3]]], dtype=np.uint8))
+    union = sitk.GetArrayFromImage(binary_roi(mask, (1, 2)))
+    kept = sitk.GetArrayFromImage(binary_roi(mask, (1, 2), keep_labels=True))
+    assert union.tolist() == [[[0, 1, 1, 0]]]
+    assert kept.tolist() == [[[0, 1, 2, 0]]]
+
+
+def test_official_split_keeps_test_and_holds_out_val():
+    import pandas as pd
+
+    from nnfoundation_bench.preprocessing import official_split
+
+    labels = pd.DataFrame(
+        {
+            "case_id": [f"c{i}" for i in range(30)],
+            "label": [i % 2 for i in range(30)],
+            "official_split": ["train"] * 20 + ["test"] * 10,
+        }
+    )
+    split = official_split(labels, val_fraction=0.2)
+    assert split["test"] == sorted(f"c{i}" for i in range(20, 30))
+    assert len(split["val"]) == 4 and len(split["train"]) == 16
+    assert not set(split["train"]) & set(split["val"])
