@@ -15,6 +15,7 @@ dependencies = [
     "loguru",
     "numpy",
     "okapy",
+    "openpyxl>=3.1.5",
     "pandas",
     "pyradiomics",
     "requests",

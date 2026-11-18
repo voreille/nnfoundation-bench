@@ -412,3 +412,42 @@ Supersedes the R2-R5 rows of D21 and D22; R1 (107 original-image features, L2 pr
   R1 (HECKTOR 0.68-0.71 vs 0.744).
 - **Rejected:** keeping the filtered set for the remaining tasks (RSNA, KiTS) "for
   completeness": hours of extraction for a baseline that has not helped anywhere.
+
+## D26. BraTS 2024 post-treatment glioma: GBM vs astrocytoma/oligodendroglioma, one task per sequence (active, 2026-11-18)
+- **Fact:** the BraTS 2024 adult glioma release (Synapse, registration-gated, placed by hand
+  on the NAS, `data/raw/BraTS_Glioma_synapse/`) has 1809 post-treatment scans of 818
+  patients from 5 sites (UCSF, UCSD, Duke, Missouri, Indiana). Each scan has t1c, t1n, t2f
+  and t2w, co-registered and skull-stripped on one 182 x 218 x 182 grid at 1 mm. The 1621
+  training scans (731 patients) have a segmentation: 1 non-enhancing core, 2 edema (SNFH),
+  3 enhancing tumour, 4 resection cavity. The 188 validation scans have none. The metadata
+  xlsx (sheet `Individual Data`) gives `Site` and `Glioma type` for every scan. Patients have
+  1-10 timepoints (`-100`, `-101`, ...).
+- **Choice:**
+  - Four tasks `brats_gbm_<t1c|t1n|t2f|t2w>`, single-channel, identical labels and splits,
+    so late fusion (D14) applies.
+  - Target (ASSUMPTION, BraTS is not in the paper): glioblastoma (1) vs astrocytoma or
+    oligodendroglioma (0), roughly IDH-wildtype vs IDH-mutant under WHO 2021. "Glioma NOS"
+    (85 patients, 76 of them from UCSF) and "Other" (14) are excluded. "glioma NOS" and
+    "Glioma NOS" are the same class.
+  - One scan per patient: the earliest timepoint with a segmentation (728 of 731 are
+    `-100`). 632 patients remain: 384 GBM, 248 not.
+  - ROI = whole tumour, labels 1+2+3 (`require_roi=True`). Pad value 0 (background).
+  - `group` = site, `stratum` = site x label, as for HECKTOR (D9); within-centre AUROC (D24)
+    applies. GBM share by site: Indiana 14/14, Duke 95/135, Missouri 84/116, UCSD
+    111/158, UCSF 80/209.
+- **Why:** BraTS ships expert 3D tumour masks for every training scan (D6), it is large, and
+  it adds brain MR, which no other task covers.
+- **Rejected:**
+  - Keeping NOS and Other as negatives: NOS is an undetermined type, almost all from one
+    site, so it would add a centre shortcut to the negative class.
+  - All timepoints with patient-grouped splits: needs changes to the shared split code and a
+    per-patient metric, and later timepoints of one patient are strongly correlated.
+  - Tumour core (1+3) as ROI: empty in 392 of 1621 scans after resection. Including the
+    cavity (4): it reflects treatment, not the tumour.
+  - The validation folder: it has no segmentation.
+- **Note:** the whole brain nearly fits in 192³, but the crop is centred on the tumour and
+  the brain is 218 mm front to back, so up to ~20% of the brain can fall outside the crop
+  (checked on 6 cases; the ROI is always fully inside). The whole-scan z-score includes the
+  ~82% zero background, as with every other task (D3).
+- **Open:** a brain-centred crop (whole brain in view) as an input-size variant. Whether the
+  site confound dominates as on HECKTOR: read plain and within-centre AUROC together.

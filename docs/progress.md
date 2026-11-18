@@ -22,19 +22,22 @@ as input channels, ROI handling, and how to pool features within a ROI.
 | `lld_mmri_malignant_*` (8 phases) | 498 patients x 8 series on the NAS, all files present | all 8 prepared: 498 cases, 266 malignant, no failures, no missing ROI | frozen probes and radiomics done for all 8 |
 | `stoic_severe`, `stoic_covid` | 2000 scans | both prepared: 2000 cases, no failures; `stoic_covid` links the crops, features and radiomics of `stoic_severe` | frozen probes and radiomics done for both |
 | `rsna_spine_fracture` | 2019 studies unpacked on the NAS, checked (961 positive) | prepare on the host stopped at 1792 of 2019 (tmux session killed 2026-11-18 08:13); rerun resumes | none yet |
+| `brats_gbm_*` (4 sequences) | 1809 scans on the NAS, 1621 with seg; metadata xlsx read | 632 patients (384 GBM), earliest scan each; prepare smoke-tested on 6 cases x 2 sequences (D26) | none yet; full prepare to run on the host |
 
 Next steps:
 1. Frozen probes and radiomics are done on HECKTOR, both STOIC tasks and the 8 LLD-MMRI
    phases.
-2. RSNA: resume `prepare rsna_spine_fracture`, then `RADIOMICS="original"
+2. BraTS: `prepare brats_gbm_<t1c|t1n|t2f|t2w>` on the host, then
+   `scripts/run_probes.sh brats_gbm_<seq>` for each sequence (D26).
+3. RSNA: resume `prepare rsna_spine_fracture`, then `RADIOMICS="original"
    scripts/run_probes.sh rsna_spine_fracture`.
-3. Fine-tuning baseline with glovita: `FOLDS=0 scripts/run_benchmark.sh hecktor_hpv_pet_gtvp`
+4. Fine-tuning baseline with glovita: `FOLDS=0 scripts/run_benchmark.sh hecktor_hpv_pet_gtvp`
    (design T1).
-4. Input-size designs S2-S7: add `--fov` / `--mode` to `nnfb-features extract`, then run
+5. Input-size designs S2-S7: add `--fov` / `--mode` to `nnfb-features extract`, then run
    the FOV sweep.
-5. LLD-MMRI late fusion over the phases (M2-M4, D14, D15): the single-phase probes are done.
-6. KiTS Liver full run (background, paper reproduction).
-7. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
+6. LLD-MMRI late fusion over the phases (M2-M4, D14, D15): the single-phase probes are done.
+7. KiTS Liver full run (background, paper reproduction).
+8. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
    "pathology"). Each task needs about 12 GB in `data/processed`. See D12.
 
 ## Backlog
@@ -90,6 +93,7 @@ dataset to get a broad view. Each cell of the results grid gives test AUROC as
 | MRNet (`mrnet_abnormal_*`) | sagittal T2 FS, coronal T1, axial PD FS (separate series, no shared geometry) | field of view | sagittal, 192³ at 1 mm (whole series) | MRNet paper (all 3 planes): abnormal 0.94, ACL 0.97, meniscus 0.85 (official test set, not comparable to our splits) |
 | KiTS Liver (`kits_liver`) | CT | liver (TotalSegmentator), often larger than 192 mm | CT, 192³ at 1 mm centred on the liver | about 5 test positives per split: noisy |
 | STOIC 2021 (`stoic_severe`, `stoic_covid`) | CT | lungs (TotalSegmentator, 3 mm masks, D18); wider than 192 mm | CT, 192³ at 1 mm centred on the lungs | 301/2000 severe, 1205/2000 COVID; STOIC challenge (severe, hidden test set): about 0.8 |
+| BraTS 2024 glioma (`brats_gbm_*`) | t1c, t1n, t2f, t2w (co-registered, one grid) | whole tumour (dataset seg, labels 1+2+3) | each sequence, 192³ at 1 mm centred on the tumour | 384/632 GBM; 5 sites, GBM share 38-100% by site: `ref` row (site only) |
 
 Unless a row says otherwise:
 - **Input:** the dataset's default input above, z-scored over the whole scan.
@@ -331,6 +335,10 @@ per split. Single-phase probes, 2026-11-17.
 - Late fusion over phases (M2-M4) is the natural next step: the best phases differ
   between the ViT (delay, venous, T2) and radiomics (venous, delay, arterial).
 
+### brats_gbm_*
+
+None yet. 632 patients, 384 GBM; 252 train, 64 val, 316 test per split.
+
 ### kits_liver
 
 None yet.
@@ -432,4 +440,8 @@ None yet.
 - Dropped the filtered radiomics set and the R2-R5 rows (D25): `run_probes.sh` now runs
   `original` with the plain L2 probe only (R1). Removed from the backlog with it: the
   filter ablation item. Cached filtered features and past runs are kept.
-
+- BraTS 2024 post-treatment glioma added (D26), on branch `brats-glioma-type`: four tasks
+  `brats_gbm_<t1c|t1n|t2f|t2w>`, GBM vs astrocytoma/oligodendroglioma, earliest scan per
+  patient, whole tumour (1+2+3) as ROI, site as `group`. 632 patients (384 GBM). Smoke test
+  on 6 cases x 2 sequences: ROI fully inside every crop, ~2 s per case. `openpyxl` added to
+  read the metadata xlsx.

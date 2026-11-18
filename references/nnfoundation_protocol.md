@@ -124,3 +124,11 @@ datasets" matches the 8 test rows; RSNA Spine and MRNet were used only for devel
 - Crop centred on C1-C7 (TotalSegmentator, union). Label (ASSUMPTION): `patient_overall`.
 - Deviation: CT below -1024 HU (scanner padding outside the reconstruction circle, ~22% of
   each scan) is clamped to -1024 before the z-score (D19).
+
+### `brats_gbm_<sequence>` (not in the paper)
+- Data: BraTS 2024 adult glioma, post-treatment (Synapse). Images are already 1 mm,
+  co-registered and skull-stripped (182 x 218 x 182). One task per sequence (D26).
+- Crop centred on the whole tumour (seg labels 1+2+3); background 0 is the pad value.
+- Label (ASSUMPTION): glioblastoma vs astrocytoma or oligodendroglioma, from the metadata
+  xlsx; Glioma NOS and Other excluded. Earliest scan per patient. Splits stratify on site x
+  label.
