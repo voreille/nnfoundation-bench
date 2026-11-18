@@ -22,12 +22,13 @@ as input channels, ROI handling, and how to pool features within a ROI.
 | `lld_mmri_malignant_*` (8 phases) | 498 patients x 8 series on the NAS, all files present | all 8 prepared: 498 cases, 266 malignant, no failures, no missing ROI | frozen probes and radiomics done for all 8 |
 | `stoic_severe`, `stoic_covid` | 2000 scans | both prepared: 2000 cases, no failures; `stoic_covid` links the crops, features and radiomics of `stoic_severe` | frozen probes and radiomics done for both |
 | `rsna_spine_fracture` | 2019 studies unpacked on the NAS, checked (961 positive) | prepare on the host stopped at 1792 of 2019 (tmux session killed 2026-11-18 08:13); rerun resumes | none yet |
-| `brats_gbm_*` (4 sequences) | 1809 scans on the NAS, 1621 with seg; metadata xlsx read | all 4 prepared on the host: 632 cases, 384 GBM, no failures, no missing ROI; identical labels and splits (D26) | probes running on the host |
+| `brats_gbm_*` (4 sequences) | 1809 scans on the NAS, 1621 with seg; metadata xlsx read | all 4 prepared on the host: 632 cases, 384 GBM, no failures, no missing ROI; identical labels and splits (D26) | frozen probes, radiomics and site-only reference done for all 4 |
 
 Next steps:
 1. Frozen probes and radiomics are done on HECKTOR, both STOIC tasks and the 8 LLD-MMRI
    phases.
-2. BraTS: `scripts/run_probes.sh brats_gbm_<seq>` for each sequence (D26); prepare is done.
+2. BraTS: age-only reference (age is in the metadata xlsx), then late fusion over the 4
+   sequences (M2-M4).
 3. RSNA: resume `prepare rsna_spine_fracture`, then `RADIOMICS="original"
    scripts/run_probes.sh rsna_spine_fracture`.
 4. Fine-tuning baseline with glovita: `FOLDS=0 scripts/run_benchmark.sh hecktor_hpv_pet_gtvp`
@@ -178,6 +179,33 @@ LLD-MMRI, one column per MR phase (task `lld_mmri_malignant_<phase>`):
 | T1-last | - / - | - / - | - / - | - / - | - / - | - / - | - / - | - / - |
 | R1 | 0.786 ± 0.040 | 0.823 ± 0.045 | 0.687 ± 0.037 | 0.739 ± 0.034 | 0.709 ± 0.026 | 0.705 ± 0.035 | 0.755 ± 0.037 | 0.828 ± 0.029 |
 | ref | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
+<!-- end generated -->
+
+BraTS 2024 glioma, one column per MR sequence (task `brats_gbm_<seq>`), GBM vs
+astrocytoma/oligodendroglioma. Test AUROC, then within-centre AUROC (D24):
+
+<!-- generated: design brats_* -->
+| ID | brats_gbm_t1c | brats_gbm_t1n | brats_gbm_t2f | brats_gbm_t2w |
+|----|---|---|---|---|
+| F1 | 0.728 ± 0.011 / 0.839 ± 0.016 | 0.728 ± 0.016 / 0.874 ± 0.015 | 0.725 ± 0.027 / 0.852 ± 0.019 | 0.730 ± 0.028 / 0.877 ± 0.014 |
+| F2 | 0.689 ± 0.031 / 0.851 ± 0.013 | 0.668 ± 0.028 / 0.844 ± 0.015 | 0.730 ± 0.022 / 0.847 ± 0.013 | 0.661 ± 0.053 / 0.817 ± 0.029 |
+| F3 | 0.669 ± 0.016 / 0.834 ± 0.017 | 0.692 ± 0.029 / 0.832 ± 0.018 | 0.739 ± 0.022 / 0.829 ± 0.017 | 0.683 ± 0.020 / 0.855 ± 0.017 |
+| T1 | - / - | - / - | - / - | - / - |
+| T1-last | - / - | - / - | - / - | - / - |
+| R1 | 0.778 ± 0.046 | 0.756 ± 0.018 | 0.756 ± 0.020 | 0.759 ± 0.018 |
+| ref | 0.667 ± 0.001 | 0.667 ± 0.001 | 0.667 ± 0.001 | 0.667 ± 0.001 |
+<!-- end generated -->
+
+<!-- generated: design-within brats_* -->
+| ID | brats_gbm_t1c | brats_gbm_t1n | brats_gbm_t2f | brats_gbm_t2w |
+|----|---|---|---|---|
+| F1 | 0.689 ± 0.014 / 0.790 ± 0.017 | 0.682 ± 0.027 / 0.829 ± 0.019 | 0.713 ± 0.020 / 0.809 ± 0.023 | 0.695 ± 0.020 / 0.825 ± 0.021 |
+| F2 | 0.675 ± 0.030 / 0.833 ± 0.018 | 0.664 ± 0.023 / 0.833 ± 0.022 | 0.702 ± 0.019 / 0.829 ± 0.022 | 0.663 ± 0.052 / 0.800 ± 0.031 |
+| F3 | 0.658 ± 0.015 / 0.804 ± 0.009 | 0.692 ± 0.023 / 0.810 ± 0.020 | 0.713 ± 0.020 / 0.799 ± 0.015 | 0.685 ± 0.020 / 0.823 ± 0.025 |
+| T1 | - / - | - / - | - / - | - / - |
+| T1-last | - / - | - / - | - / - | - / - |
+| R1 | 0.751 ± 0.048 | 0.698 ± 0.015 | 0.714 ± 0.036 | 0.716 ± 0.031 |
+| ref | 0.500 ± 0.000 | 0.500 ± 0.000 | 0.500 ± 0.000 | 0.500 ± 0.000 |
 <!-- end generated -->
 
 ### FOV sweep (designs S2-S5)
@@ -336,7 +364,17 @@ per split. Single-phase probes, 2026-11-17.
 
 ### brats_gbm_*
 
-None yet. 632 patients, 384 GBM; 252 train, 64 val, 316 test per split.
+Grids above (`design brats_*`, `design-within brats_*`). 632 patients, 384 GBM; 252 train,
+64 val, 316 test per split. Single-sequence probes, 2026-11-18.
+- **ViT well above the site-only reference (0.667):** 0.84-0.88 plain, 0.79-0.83 within-centre.
+  Unlike HECKTOR, most of the signal is not the site.
+- **Best: ViT whole-crop mean on t2w (0.877) and t1n (0.874).** Within-centre the ROI mean is
+  level with or above the whole crop (t1c, t1n 0.833).
+- **ROI pooling does not help in plain AUROC** (unlike LLD-MMRI). The crop holds most of the
+  brain, so this may partly be patient age (atrophy, ventricles): GBM patients are older.
+  An age-only reference is the next check.
+- **ViT beats radiomics on every sequence** (R1 0.76-0.78 plain, 0.70-0.75 within). The CNN is
+  below radiomics (0.66-0.74), as on the other tasks.
 
 ### kits_liver
 
@@ -446,3 +484,8 @@ None yet.
   read the metadata xlsx.
 - BraTS: all 4 sequences prepared on the host (632 cases each, no failures, no case
   without ROI, ~2.9 GB per task). Probes started.
+- BraTS: frozen probes and radiomics on all 4 sequences. ViT 0.84-0.88 (within-centre
+  0.79-0.83) vs site only 0.667 and radiomics 0.76-0.78; the whole crop is as good as the ROI.
+- This server's `outputs/results/` holds only the BraTS runs (the other tasks ran in another
+  workspace), so only the `brats_*` blocks were regenerated here. A full
+  `table --update` needs all results in one `outputs/`.
