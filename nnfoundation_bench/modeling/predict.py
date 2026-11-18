@@ -166,11 +166,9 @@ DESIGN_RUNS = {
     "T1": lambda m: run_name(m),
     "T1-last": lambda m: eval_run_name(run_name(m), "last"),
     # Model-independent rows (one value per cell): handcrafted radiomics baselines.
+    # R2-R5 (filtered set, correlation filter, elastic net) were dropped (D25); their past
+    # runs still show in the runs tables.
     "R1": "radiomics_original_logreg",
-    "R2": "radiomics_filtered_logreg",
-    "R3": "radiomics_filtered_corr0.9_logreg",
-    "R4": "radiomics_filtered_enet",
-    "R5": "radiomics_filtered_corr0.9_enet",
 }
 
 

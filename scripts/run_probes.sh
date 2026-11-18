@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Frozen-feature probes (F1-F3) and radiomics baselines (R1-R5) for one prepared task,
+# Frozen-feature probes (F1-F3) and the radiomics baseline (R1) for one prepared task,
 # then the design grid. Meant to run on the host, after `nnfb-data prepare TASK`.
 #
 #   scripts/run_probes.sh TASK
@@ -7,7 +7,8 @@
 # Settings (environment variables):
 #   MODELS="cnn vit"            frozen encoders; model i runs on the i-th entry of GPUS
 #   GPUS="0 1"                  one GPU per model, extractions run in parallel
-#   RADIOMICS="original filtered"  radiomics feature sets ("" skips radiomics, e.g. MRNet)
+#   RADIOMICS="original"        radiomics feature sets ("" skips radiomics, e.g. MRNet;
+#                               "original filtered" adds the dropped filtered set, D25)
 #   JOBS=32                     radiomics worker processes
 #
 # Safe to rerun: features already extracted are skipped; probes are cheap and refitted.
@@ -16,7 +17,7 @@ set -euo pipefail
 TASK=${1:?usage: scripts/run_probes.sh TASK}
 MODELS=${MODELS:-"cnn vit"}
 GPUS=${GPUS:-"0 1"}
-RADIOMICS=${RADIOMICS-"original filtered"}
+RADIOMICS=${RADIOMICS-"original"}
 JOBS=${JOBS:-32}
 
 cd "$(dirname "$0")/.."
@@ -51,10 +52,6 @@ for model in $MODELS; do
 done
 for features in $RADIOMICS; do
   uv run nnfb-radiomics probe "$TASK" --features "$features"
-  uv run nnfb-radiomics probe "$TASK" --features "$features" --corr-threshold 0.9
-  uv run nnfb-radiomics probe "$TASK" --features "$features" --classifier enet
-  uv run nnfb-radiomics probe "$TASK" --features "$features" --corr-threshold 0.9 \
-    --classifier enet
 done
 
 # Confounder reference (e.g. centre alone) for tasks whose labels.csv has a group column

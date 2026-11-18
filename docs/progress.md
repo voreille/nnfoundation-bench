@@ -70,14 +70,6 @@ would trigger it. Move an item to "Next steps" when it is picked up.
 - **Silence TotalSegmentator's "Output affine not equal" warning** by snapping the
   temporary 3 mm image's origin to float32-exact values (a sub-micrometre shift). Harmless,
   but about 15 lines per case in the logs.
-- **Drop the `filtered` radiomics set (R2-R5) if it is not worth its cost.** It is
-  about 10x the compute of `original` (hours on STOIC's lung ROIs) and is only a baseline.
-  *Trigger:* if on STOIC and LLD-MMRI it does not clearly beat `original` (R1) or the best
-  embedding probe, keep R1 only and set `RADIOMICS="original"` as the script default.
-  STOIC severe: no gain (R2-R5 within noise of R1, all below the ViT). STOIC covid and
-  LLD-MMRI: R2-R5 at or below R1 on every task. HECKTOR is the only task where filtered
-  beats original, and only in plain AUROC: within-centre, R1 is best (0.66 vs 0.58-0.63).
-  **Trigger met (2026-11-18); waiting for the user's go to drop it.**
 - **Erase the centre from the features (LEACE, Belrose et al. 2023)** with a linear eraser
   fit per fold on train, then probe. Within-centre AUROC (D24) already removes the centre
   from the *metric*; LEACE would remove it from the *features*, which matters if centre-free
@@ -85,9 +77,6 @@ would trigger it. Move an item to "Next steps" when it is picked up.
   dims), and also removes real signal that correlates with the centre. *Trigger:* a model
   with clearly better than 0.5 within-centre AUROC on HECKTOR, or a multi-centre task where
   the embeddings feed our own pipeline.
-- **Radiomics filter ablation:** probe LoG and wavelet subsets separately from the cached
-  features. On 1 mm-resampled PET (native ~4 mm), LoG 1 mm and the high-pass wavelets
-  likely see interpolation, not texture.
 
 ## Design benchmark
 
@@ -109,7 +98,8 @@ Unless a row says otherwise:
   single-channel task, then fused late (M2-M5, D14).
 
 Status: **ready** = code exists (the grid below shows which tasks have run); **planned**
-= code still to write; **dropped** = not pursued.
+= code still to write; **dropped** = not pursued (dropped rows leave the grids; their past
+runs stay in the per-task runs tables).
 
 | ID | Axis | Design | Run name | Applies to | Status |
 |----|------|--------|----------|------------|--------|
@@ -120,10 +110,10 @@ Status: **ready** = code exists (the grid below shows which tasks have run); **p
 | T1 | Adaptation | glovita full fine-tuning, paper recipe (D1) | `cnn_lr0.0003`, `vit_lr0.0001` | all | ready |
 | T1-last | Adaptation | Same runs as T1, evaluated at the last checkpoint (end of the cosine schedule) instead of the best val AUROC (D20) | `cnn_lr0.0003_last`, `vit_lr0.0001_last` | all | ready |
 | R1 | Baseline (handcrafted) | pyradiomics in the ROI, original image (107 features), same probe and splits (D21); one value per cell | `radiomics_original_logreg` | MRNet n/a (no ROI) | ready |
-| R2 | Baseline (handcrafted) | Same as R1, plus LoG (1, 3 mm) and wavelet images (1037 features) | `radiomics_filtered_logreg` | MRNet n/a (no ROI) | ready |
-| R3 | Baseline (handcrafted) | R2 features, redundant ones dropped per fold (Spearman \|rho\| > 0.9, fit on train; ~305 of 1037 kept), L2 probe (D22) | `radiomics_filtered_corr0.9_logreg` | MRNet n/a (no ROI) | ready |
-| R4 | Baseline (handcrafted) | R2 features, elastic-net probe (L1 share 0.1/0.5/0.9 and C chosen on val) | `radiomics_filtered_enet` | MRNet n/a (no ROI) | ready |
-| R5 | Baseline (handcrafted) | Correlation filter (R3) then elastic net (R4) | `radiomics_filtered_corr0.9_enet` | MRNet n/a (no ROI) | ready |
+| R2 | Baseline (handcrafted) | Same as R1, plus LoG (1, 3 mm) and wavelet images (1037 features) | `radiomics_filtered_logreg` | MRNet n/a (no ROI) | dropped (D25) |
+| R3 | Baseline (handcrafted) | R2 features, redundant ones dropped per fold (Spearman \|rho\| > 0.9, fit on train; ~305 of 1037 kept), L2 probe (D22) | `radiomics_filtered_corr0.9_logreg` | MRNet n/a (no ROI) | dropped (D25) |
+| R4 | Baseline (handcrafted) | R2 features, elastic-net probe (L1 share 0.1/0.5/0.9 and C chosen on val) | `radiomics_filtered_enet` | MRNet n/a (no ROI) | dropped (D25) |
+| R5 | Baseline (handcrafted) | Correlation filter (R3) then elastic net (R4) | `radiomics_filtered_corr0.9_enet` | MRNet n/a (no ROI) | dropped (D25) |
 | S1 | Input size | Fixed 192³ at 1 mm (current preprocessing; same as F1-F3) | see F1-F3 | all | ready |
 | S2 | Input size | Native 1 mm, input size = FOV; ViT absolute position embedding interpolated (glovita default) |  | all | planned |
 | S3 | Input size | Same as S2, but the ViT absolute position embedding is cut out (FOV < 192) instead of interpolated, consistent with RoPE; CNN n/a |  | all | planned |
@@ -153,10 +143,6 @@ run yet; `ref` = `group_prior` (centre only), for tasks with centres.
 | T1 | - / - | - / - | - / - |
 | T1-last | - / - | - / - | - / - |
 | R1 | 0.744 ± 0.053 | 0.738 ± 0.013 | 0.747 ± 0.016 |
-| R2 | 0.786 ± 0.008 | 0.726 ± 0.021 | 0.745 ± 0.032 |
-| R3 | 0.814 ± 0.017 | 0.725 ± 0.020 | 0.755 ± 0.028 |
-| R4 | 0.817 ± 0.045 | 0.738 ± 0.017 | 0.755 ± 0.026 |
-| R5 | 0.810 ± 0.044 | 0.735 ± 0.019 | 0.753 ± 0.023 |
 | ref | 0.839 ± 0.011 | n/a | n/a |
 <!-- end generated -->
 
@@ -174,10 +160,6 @@ x 15 negatives), so these values are noisy.
 | T1 | - / - |
 | T1-last | - / - |
 | R1 | 0.660 ± 0.100 |
-| R2 | 0.583 ± 0.076 |
-| R3 | 0.620 ± 0.061 |
-| R4 | 0.626 ± 0.118 |
-| R5 | 0.628 ± 0.123 |
 | ref | 0.500 ± 0.000 |
 <!-- end generated -->
 
@@ -192,10 +174,6 @@ LLD-MMRI, one column per MR phase (task `lld_mmri_malignant_<phase>`):
 | T1 | - / - | - / - | - / - | - / - | - / - | - / - | - / - | - / - |
 | T1-last | - / - | - / - | - / - | - / - | - / - | - / - | - / - | - / - |
 | R1 | 0.786 ± 0.040 | 0.823 ± 0.045 | 0.687 ± 0.037 | 0.739 ± 0.034 | 0.709 ± 0.026 | 0.705 ± 0.035 | 0.755 ± 0.037 | 0.828 ± 0.029 |
-| R2 | 0.753 ± 0.024 | 0.798 ± 0.033 | 0.685 ± 0.039 | 0.702 ± 0.013 | 0.687 ± 0.036 | 0.685 ± 0.025 | 0.757 ± 0.037 | 0.810 ± 0.030 |
-| R3 | 0.756 ± 0.023 | 0.787 ± 0.025 | 0.663 ± 0.048 | 0.687 ± 0.009 | 0.673 ± 0.031 | 0.672 ± 0.019 | 0.747 ± 0.033 | 0.791 ± 0.029 |
-| R4 | 0.764 ± 0.027 | 0.824 ± 0.016 | 0.684 ± 0.051 | 0.706 ± 0.010 | 0.678 ± 0.030 | 0.694 ± 0.035 | 0.753 ± 0.034 | 0.810 ± 0.032 |
-| R5 | 0.756 ± 0.023 | 0.808 ± 0.021 | 0.662 ± 0.041 | 0.689 ± 0.012 | 0.685 ± 0.046 | 0.677 ± 0.024 | 0.739 ± 0.046 | 0.784 ± 0.041 |
 | ref | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
 <!-- end generated -->
 
@@ -232,10 +210,10 @@ under them are written by hand.
 | Run | Design | AUROC | Within-centre AUROC |
 |---|---|---|---|
 | `group_prior` | ref | 0.839 ± 0.011 | 0.500 ± 0.000 |
-| `radiomics_filtered_enet` | R4 | 0.817 ± 0.045 | 0.626 ± 0.118 |
-| `radiomics_filtered_corr0.9_logreg` | R3 | 0.814 ± 0.017 | 0.620 ± 0.061 |
-| `radiomics_filtered_corr0.9_enet` | R5 | 0.810 ± 0.044 | 0.628 ± 0.123 |
-| `radiomics_filtered_logreg` | R2 | 0.786 ± 0.008 | 0.583 ± 0.076 |
+| `radiomics_filtered_enet` |  | 0.817 ± 0.045 | 0.626 ± 0.118 |
+| `radiomics_filtered_corr0.9_logreg` |  | 0.814 ± 0.017 | 0.620 ± 0.061 |
+| `radiomics_filtered_corr0.9_enet` |  | 0.810 ± 0.044 | 0.628 ± 0.123 |
+| `radiomics_filtered_logreg` |  | 0.786 ± 0.008 | 0.583 ± 0.076 |
 | `vit_frozen_mean_logreg` | F1 | 0.765 ± 0.047 | 0.490 ± 0.123 |
 | `radiomics_original_logreg` | R1 | 0.744 ± 0.053 | 0.660 ± 0.100 |
 | `vit_frozen_roi_margin_mean_logreg` | F3 | 0.742 ± 0.015 | 0.502 ± 0.099 |
@@ -290,12 +268,12 @@ chosen on 10 val cases, tested on 51. Small, so expect noise.
 | `vit_frozen_roi_margin_mean_logreg` | F3 | 0.776 ± 0.009 |
 | `vit_frozen_mean_logreg` | F1 | 0.760 ± 0.013 |
 | `radiomics_original_enet` |  | 0.756 ± 0.018 |
-| `radiomics_filtered_corr0.9_logreg` | R3 | 0.755 ± 0.028 |
-| `radiomics_filtered_enet` | R4 | 0.755 ± 0.026 |
-| `radiomics_filtered_corr0.9_enet` | R5 | 0.753 ± 0.023 |
+| `radiomics_filtered_corr0.9_logreg` |  | 0.755 ± 0.028 |
+| `radiomics_filtered_enet` |  | 0.755 ± 0.026 |
+| `radiomics_filtered_corr0.9_enet` |  | 0.753 ± 0.023 |
 | `radiomics_original_logreg` | R1 | 0.747 ± 0.016 |
 | `radiomics_original_corr0.9_enet` |  | 0.746 ± 0.014 |
-| `radiomics_filtered_logreg` | R2 | 0.745 ± 0.032 |
+| `radiomics_filtered_logreg` |  | 0.745 ± 0.032 |
 | `radiomics_original_corr0.9_logreg` |  | 0.744 ± 0.021 |
 | `cnn_frozen_roi_margin_mean_logreg` | F3 | 0.707 ± 0.022 |
 | `cnn_frozen_roi_mean_logreg` | F2 | 0.697 ± 0.035 |
@@ -320,14 +298,14 @@ Frozen probes and radiomics, 2026-11-17: 800 train, 200 val, 1000 test cases per
 | `vit_frozen_roi_mean_logreg` | F2 | 0.814 ± 0.012 |
 | `vit_frozen_roi_margin_mean_logreg` | F3 | 0.808 ± 0.017 |
 | `vit_frozen_mean_logreg` | F1 | 0.787 ± 0.029 |
-| `radiomics_filtered_enet` | R4 | 0.738 ± 0.017 |
+| `radiomics_filtered_enet` |  | 0.738 ± 0.017 |
 | `radiomics_original_logreg` | R1 | 0.738 ± 0.013 |
 | `radiomics_original_enet` |  | 0.737 ± 0.013 |
-| `radiomics_filtered_corr0.9_enet` | R5 | 0.735 ± 0.019 |
+| `radiomics_filtered_corr0.9_enet` |  | 0.735 ± 0.019 |
 | `radiomics_original_corr0.9_logreg` |  | 0.734 ± 0.012 |
 | `radiomics_original_corr0.9_enet` |  | 0.728 ± 0.015 |
-| `radiomics_filtered_logreg` | R2 | 0.726 ± 0.021 |
-| `radiomics_filtered_corr0.9_logreg` | R3 | 0.725 ± 0.020 |
+| `radiomics_filtered_logreg` |  | 0.726 ± 0.021 |
+| `radiomics_filtered_corr0.9_logreg` |  | 0.725 ± 0.020 |
 | `cnn_frozen_roi_mean_logreg` | F2 | 0.698 ± 0.010 |
 | `cnn_frozen_roi_margin_mean_logreg` | F3 | 0.696 ± 0.007 |
 | `cnn_frozen_mean_logreg` | F1 | 0.621 ± 0.014 |
@@ -349,7 +327,7 @@ per split. Single-phase probes, 2026-11-17.
   (0.808).** On delay and venous it is above or level with the best radiomics (R1 0.823,
   0.828). F3 (ROI + 10 mm) is below F2 on most phases: the liver around the lesion dilutes.
 - **CNN at chance on every phase** (0.50-0.58), as on HECKTOR.
-- **Filtered radiomics never beats original:** R2-R5 at or below R1 on all 8 phases.
+- **Filtered radiomics never beats original:** R2-R5 at or below R1 on all 8 phases (dropped, D25).
 - Late fusion over phases (M2-M4) is the natural next step: the best phases differ
   between the ViT (delay, venous, T2) and radiomics (venous, delay, arterial).
 
@@ -451,5 +429,7 @@ None yet.
   is computed from the existing `predictions.csv`, so nothing was rerun. On HECKTOR it
   shows the frozen embeddings at chance once the centre is removed. LEACE parked in the
   backlog; E1 judged unworkable on HECKTOR.
-- The trigger for dropping the filtered radiomics set is met (backlog).
+- Dropped the filtered radiomics set and the R2-R5 rows (D25): `run_probes.sh` now runs
+  `original` with the plain L2 probe only (R1). Removed from the backlog with it: the
+  filter ablation item. Cached filtered features and past runs are kept.
 

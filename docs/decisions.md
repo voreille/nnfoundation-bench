@@ -397,3 +397,18 @@ Extends D9 and replaces its open item (leave-one-centre-out) for HECKTOR.
 - **Open:** on HECKTOR a test split holds only 66-81 within-centre pairs, more than half
   from CHUP, so the metric is noisy (std 0.04-0.16).
 
+
+## D25. Drop the filtered radiomics set and rows R2-R5 (active, 2026-11-18)
+Supersedes the R2-R5 rows of D21 and D22; R1 (107 original-image features, L2 probe) stays.
+- **Choice:** `scripts/run_probes.sh` extracts the `original` set only and fits the plain
+  L2 probe (R1). R2-R5 leave the design grids (status "dropped"). The code
+  (`--features filtered`, `--corr-threshold`, `--classifier enet`) stays, and past runs and
+  cached features are kept; their runs still show in the per-task runs tables.
+- **Why:** the backlog trigger was met. On STOIC severe, STOIC covid and all 8 LLD-MMRI
+  phases, R2-R5 are at or below R1. HECKTOR was the only task where they beat R1 in plain
+  AUROC (0.79-0.82 vs 0.74), but within-centre (D24) R1 is best (0.66 vs 0.58-0.63), so
+  the gain was centre signal. The filtered set costs about 10x the extraction time.
+- **Also dropped:** correlation filter and elastic net on the original set: never above
+  R1 (HECKTOR 0.68-0.71 vs 0.744).
+- **Rejected:** keeping the filtered set for the remaining tasks (RSNA, KiTS) "for
+  completeness": hours of extraction for a baseline that has not helped anywhere.

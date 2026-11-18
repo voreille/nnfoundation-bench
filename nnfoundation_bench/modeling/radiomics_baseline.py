@@ -36,6 +36,8 @@ DISCRETISATION = {
     "MR": {"binCount": 32},
 }
 # Feature sets: image types given to pyradiomics. All feature classes are enabled.
+# ``filtered`` is no longer run by default (D25): it never beat ``original`` except on
+# HECKTOR, where the gain was centre signal.
 FEATURE_SETS = {
     "original": {"Original": {}},
     "filtered": {"Original": {}, "LoG": {"sigma": [1.0, 3.0]}, "Wavelet": {}},

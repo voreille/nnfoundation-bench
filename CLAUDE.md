@@ -56,16 +56,17 @@ code skips work that is already done.
 - `uv run nnfb-features extract <task> --model cnn|vit` then `probe <task> --model ...`:
   frozen-encoder features mean-pooled over the whole crop, the ROI and the ROI + 10 mm, and a
   logistic-regression probe per fold. Runs are named `<model>_frozen_<pooling>_logreg`.
-- `uv run nnfb-radiomics extract <task> [--features original|filtered]` then `probe <task>`:
-  pyradiomics baseline in the ROI of the QC crops, same probe and splits as the embeddings.
-  `probe` options: `--corr-threshold 0.9` (drop redundant features per fold),
-  `--classifier enet` (elastic net). Runs are named `radiomics_<features>[_corr<t>]_<logreg|enet>`.
+- `uv run nnfb-radiomics extract <task>` then `probe <task>`: pyradiomics baseline (107
+  original-image features) in the ROI of the QC crops, same probe and splits as the
+  embeddings (R1, `radiomics_original_logreg`). The filtered set (`--features filtered`) and
+  the probe options `--corr-threshold` / `--classifier enet` still exist but were dropped
+  from the benchmark (D25).
 - `uv run nnfb-predict table [tasks...]`: the design-benchmark grid (markdown, cells `CNN / ViT`)
   from all results. `table --update docs/progress.md` rewrites every generated table there.
   `table --within`: within-centre AUROC (pairs from the same `group` only; `group_prior` = 0.5,
   D24), for tasks with centres. Read it next to plain AUROC on multi-centre tasks.
 - `scripts/run_probes.sh <task>` (host only): for a prepared task, extracts frozen features
-  (CNN and ViT on two GPUs) and radiomics, fits every probe (F1-F3, R1-R5), prints the
+  (CNN and ViT on two GPUs) and radiomics, fits every probe (F1-F3, R1), prints the
   design grid. `RADIOMICS=""` skips radiomics (MRNet has no ROI). Settings in the header.
 - `scripts/run_benchmark.sh <task>` (host only) runs download, prepare, every
   pretrained model x fold spread over `GPUS` (`SCRATCH=1` adds random-init baselines),
