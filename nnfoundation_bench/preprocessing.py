@@ -42,11 +42,18 @@ def roi_center(mask: sitk.Image, label: int) -> Point | None:
     return mask.TransformContinuousIndexToPhysicalPoint((start + (size - 1) / 2).tolist())
 
 
-def binary_roi(mask: sitk.Image, labels: int | Sequence[int]) -> sitk.Image:
-    """uint8 mask of the voxels whose value is in ``labels`` (one label or a union)."""
+def binary_roi(
+    mask: sitk.Image, labels: int | Sequence[int], keep_labels: bool = False
+) -> sitk.Image:
+    """uint8 mask of the voxels whose value is in ``labels`` (one label or a union).
+
+    The mask is 0/1, or with ``keep_labels`` the original values of ``labels`` (others 0).
+    """
     labels = [labels] if isinstance(labels, int) else list(labels)
+    array = sitk.GetArrayViewFromImage(mask)
+    inside = np.isin(array, labels)
     roi = sitk.GetImageFromArray(
-        np.isin(sitk.GetArrayViewFromImage(mask), labels).astype(np.uint8)
+        np.where(inside, array, 0).astype(np.uint8) if keep_labels else inside.astype(np.uint8)
     )
     roi.CopyInformation(mask)
     return roi
@@ -140,6 +147,24 @@ def stratified_split(
     return {"train": sorted(train), "val": sorted(val), "test": sorted(test)}
 
 
+def official_split(
+    labels: pd.DataFrame, val_fraction: float = 0.2, seed: int = DEFAULT_SEED, min_stratum: int = 4
+) -> dict[str, list[str]]:
+    """The dataset's own train/test split (``official_split`` column), with ``val_fraction``
+    of its train cases held out as val (stratified like the repeated splits)."""
+    train_val = labels[labels["official_split"] == "train"]
+    test = labels.loc[labels["official_split"] == "test", "case_id"]
+    y = train_val["label"].to_numpy()
+    strata = train_val["stratum"].astype(str).to_numpy() if "stratum" in labels else y.astype(str)
+    train, val = train_test_split(
+        train_val["case_id"].to_numpy(),
+        test_size=val_fraction,
+        random_state=seed,
+        stratify=_strata(y, strata, min_stratum),
+    )
+    return {"train": sorted(train), "val": sorted(val), "test": sorted(test)}
+
+
 def repeated_splits(
     labels: pd.DataFrame, n_splits: int = N_SPLITS, seed: int = DEFAULT_SEED
 ) -> list[dict[str, list[str]]]:
@@ -150,9 +175,17 @@ def repeated_splits(
     return [stratified_split(labels, seed=seed + i) for i in range(n_splits)]
 
 
-def _process_case(inputs: CaseInputs, pad_value: float, out_dir: Path, qc_dir: Path, case_id: str):
+def _process_case(
+    inputs: CaseInputs,
+    task: ClassificationTask,
+    out_dir: Path,
+    qc_dir: Path,
+    case_id: str,
+):
     """Crop one case around its ROI; returns whether the ROI is present in the crop."""
     image = sitk.Cast(sitk.ReadImage(inputs.image), sitk.sitkFloat32)
+    if task.intensity_min is not None:
+        image = sitk.Maximum(image, float(task.intensity_min))
     array = sitk.GetArrayViewFromImage(image)
     mean, std = float(array.mean()), float(array.std())
 
@@ -160,12 +193,12 @@ def _process_case(inputs: CaseInputs, pad_value: float, out_dir: Path, qc_dir: P
         mask = sitk.Image(image.GetSize(), sitk.sitkUInt8)
         mask.CopyInformation(image)
     else:
-        mask = binary_roi(sitk.ReadImage(inputs.roi_mask), inputs.roi_label)
-    center = roi_center(mask, 1)
+        mask = binary_roi(sitk.ReadImage(inputs.roi_mask), inputs.roi_label, task.keep_roi_labels)
+    center = roi_center(sitk.Cast(mask > 0, sitk.sitkUInt8), 1)  # union of the ROI labels
     if center is None:
         center = image_center(image)
 
-    crop = crop_around(image, center, pad_value=pad_value)
+    crop = crop_around(image, center, pad_value=task.pad_value)
     mask_crop = crop_around(mask, center, interpolator=sitk.sitkNearestNeighbor, pad_value=0)
     mask_array = sitk.GetArrayFromImage(mask_crop)
 
@@ -227,7 +260,7 @@ def prepare_task(
             continue
         try:
             inputs = task.case_inputs(case_id, device)
-            roi_found[case_id] = _process_case(inputs, task.pad_value, out_dir, qc_dir, case_id)
+            roi_found[case_id] = _process_case(inputs, task, out_dir, qc_dir, case_id)
         except Exception as e:  # noqa: BLE001 - one bad case must not stop the run
             logger.exception(f"{case_id}: preprocessing failed")
             failed[case_id] = f"{type(e).__name__}: {e}"
@@ -248,6 +281,9 @@ def prepare_task(
     splits = repeated_splits(labels, n_splits=n_splits, seed=seed)
     with open(out_dir / "splits.json", "w") as f:
         json.dump(splits, f, indent=1)
+    if "official_split" in labels:
+        with open(out_dir / "splits_official.json", "w") as f:
+            json.dump([official_split(labels, seed=seed)], f, indent=1)
 
     summary = {
         "num_classes": 2,
@@ -263,6 +299,8 @@ def prepare_task(
         "axis_order": "z,y,x (LPS identity direction)",
         "normalization": "z-score with whole-scan mean/std (nnU-Net ZScoreNormalization)",
         "pad_value": task.pad_value,
+        "intensity_min": task.intensity_min,
+        "mask_values": "ROI labels kept" if task.keep_roi_labels else "binary (union)",
         "split_seeds": [seed + i for i in range(n_splits)],
         "num_cases": len(labels),
         "num_positive": int(labels["label"].sum()),

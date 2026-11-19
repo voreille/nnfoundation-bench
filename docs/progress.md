@@ -21,6 +21,7 @@ as input channels, ROI handling, and how to pool features within a ROI.
 | `mrnet_*` (9 tasks) | 1250 public exams on the NAS; all file sizes and 40 md5s checked | npy-to-NIfTI conversion and crop smoke-tested on 2 exams per plane | none yet |
 | `lld_mmri_malignant_*` (8 phases) | 498 patients x 8 series on the NAS, all files present | all 8 prepared: 498 cases, 266 malignant, no failures, no missing ROI | frozen probes and radiomics done for all 8 |
 | `stoic_severe`, `stoic_covid` | 2000 scans | both prepared: 2000 cases, no failures; `stoic_covid` links the crops, features and radiomics of `stoic_severe` | frozen probes and radiomics done for both |
+| `hecktor2022_rfs_ct`, `hecktor2022_rfs_pet` | HECKTOR 2022 train + test on the NAS, all checked: 827 patients with RFS, 174 relapses, 9 centres | preprocessing smoke-tested on 5 cases (PET and CT crops on the same grid, labels 1/2 kept); survival probe to write | none yet |
 | `rsna_spine_fracture` | 2019 studies unpacked on the NAS, checked (961 positive) | prepare on the host stopped at 1792 of 2019 (tmux session killed 2026-11-18 08:13); rerun resumes | none yet |
 | `upenn_os_*` (4 sequences) | 452 patients on the NAS (`UPENN_GBM`) + OS labels placed by hand (`GBM-UPENN-OS`), all 4 sequences, a mask for each (145 expert) | all 4 prepared on the host: 452 cases, 226 survived 1 year, no failures, no missing ROI; identical labels and splits (D31) | probes, radiomics, age reference, Cox / C-index (D32), fusion (`upenn_os_fused`) done |
 | `brats_gbm_*` (4 sequences) | 1809 scans on the NAS, 1621 with seg; metadata xlsx read | all 4 prepared on the host: 632 cases, 384 GBM, no failures, no missing ROI; identical labels and splits (D28) | probes, radiomics, site and age references, fusion (`brats_gbm_fused`) done |
@@ -34,13 +35,17 @@ Next steps:
    age + imaging probes (AUROC and Cox) to test whether imaging adds anything over age.
 4. RSNA: resume `prepare rsna_spine_fracture`, then `RADIOMICS="original"
    scripts/run_probes.sh rsna_spine_fracture`.
-5. Fine-tuning baseline with glovita: `FOLDS=0 scripts/run_benchmark.sh hecktor_hpv_pet_gtvp`
+5. HECKTOR 2022 RFS (D26): prepare both modalities on the host; meanwhile write the Cox
+   probe, the C-index (plain, within-centre) and the per-ROI poolings (GTVp, GTVn,
+   concatenation) are written (D27); then `scripts/run_probes.sh` on both tasks. Next:
+   PET + CT late fusion (M2-M4) and the official train -> test view.
+6. Fine-tuning baseline with glovita: `FOLDS=0 scripts/run_benchmark.sh hecktor_hpv_pet_gtvp`
    (design T1).
-6. Input-size designs S2-S7: add `--fov` / `--mode` to `nnfb-features extract`, then run
+7. Input-size designs S2-S7: add `--fov` / `--mode` to `nnfb-features extract`, then run
    the FOV sweep.
-7. LLD-MMRI late fusion over the phases (M2-M4, D14, D15, D30): `nnfb-features fuse` is ready.
-8. KiTS Liver full run (background, paper reproduction).
-9. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
+8. LLD-MMRI late fusion over the phases (M2-M4, D14, D15, D30): `nnfb-features fuse` is ready.
+9. KiTS Liver full run (background, paper reproduction).
+10. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
    "pathology"). Each task needs about 12 GB in `data/processed`. See D12.
 
 ## Backlog
@@ -99,6 +104,7 @@ dataset to get a broad view. Each cell of the results grid gives test AUROC as
 | HECKTOR HPV (`hecktor_hpv_pet_gtvp`) | PET, CT (same patient, registered) | GTVp (dataset SEG) | PET, 192³ at 1 mm centred on the GTVp | centre only: `ref` row of the grid; target ≥ 0.99 |
 | MRNet (`mrnet_abnormal_*`) | sagittal T2 FS, coronal T1, axial PD FS (separate series, no shared geometry) | field of view | sagittal, 192³ at 1 mm (whole series) | MRNet paper (all 3 planes): abnormal 0.94, ACL 0.97, meniscus 0.85 (official test set, not comparable to our splits) |
 | KiTS Liver (`kits_liver`) | CT | liver (TotalSegmentator), often larger than 192 mm | CT, 192³ at 1 mm centred on the liver | about 5 test positives per split: noisy |
+| HECKTOR 2022 RFS (`hecktor2022_rfs_ct`, `hecktor2022_rfs_pet`) | CT, PET (same patient, same crop grid) | GTVp ∪ GTVn (dataset masks, labels kept) | CT or PET, 192³ at 1 mm centred on GTVp ∪ GTVn | survival: C-index, not AUROC (D27); 174 relapses in 827; challenge Task 2 winners about 0.68 on the test set (official split, not comparable to our splits) |
 | STOIC 2021 (`stoic_severe`, `stoic_covid`) | CT | lungs (TotalSegmentator, 3 mm masks, D18); wider than 192 mm | CT, 192³ at 1 mm centred on the lungs | 301/2000 severe, 1205/2000 COVID; STOIC challenge (severe, hidden test set): about 0.8 |
 | UPENN-GBM survival (`upenn_os_*`) | T1, T1GD, T2, FLAIR (co-registered, one grid) | whole tumour (expert mask, else automatic) | each sequence, 192³ at 1 mm centred on the tumour | 1-year OS 226/452 (AUROC); C-index grid for the Cox probes; age reference |
 | BraTS 2024 glioma (`brats_gbm_*`) | t1c, t1n, t2f, t2w (co-registered, one grid) | whole tumour (dataset seg, labels 1+2+3) | each sequence, 192³ at 1 mm centred on the tumour | 384/632 GBM; 5 sites, GBM share 38-100% by site: `ref` row (site only) |
@@ -108,6 +114,9 @@ Unless a row says otherwise:
 - **Frozen rows:** the probe is a logistic regression (D13).
 - **Several modalities:** embeddings are extracted per modality, each from its own
   single-channel task, then fused late (M2-M5, D14).
+
+`<p>` is the probe: `logreg`, or `cox` (ridge Cox, D27) on survival tasks, whose cells are
+C-index instead of AUROC.
 
 Status: **ready** = code exists (the grid below shows which tasks have run); **planned**
 = code still to write; **dropped** = not pursued (dropped rows leave the grids; their past
@@ -119,6 +128,9 @@ runs stay in the per-task runs tables).
 | F2 | Pooling (frozen) | Mean over the ROI, cells weighted by ROI fraction | `<m>_frozen_roi_mean_logreg` | MRNet n/a (ROI = FOV, same as F1 up to padding) | ready |
 | F3 | Pooling (frozen) | Mean over the ROI + 10 mm | `<m>_frozen_roi_margin_mean_logreg` | MRNet n/a | ready |
 | F4 | Pooling (frozen) | ROI mean over earlier CNN stages (16 mm, 8 mm cells); ViT n/a |  | all | planned |
+| F5 | Pooling (frozen, several ROIs) | Mean over the first ROI only (HECKTOR 2022: GTVp) | `<m>_frozen_gtvp_mean_<p>` | tasks with named ROIs (HECKTOR 2022) | ready |
+| F6 | Pooling (frozen, several ROIs) | Mean over the second ROI only (GTVn) | `<m>_frozen_gtvn_mean_<p>` | tasks with named ROIs | ready |
+| F7 | Pooling (frozen, several ROIs) | Concatenation of the per-ROI means (GTVp, GTVn), one probe; a missing ROI is imputed (train median). F2 is the union (one mean over GTVp ∪ GTVn) | `<m>_frozen_roi_concat_mean_<p>` | tasks with named ROIs | ready |
 | T1 | Adaptation | glovita full fine-tuning, paper recipe (D1) | `cnn_lr0.0003`, `vit_lr0.0001` | all | ready |
 | T1-last | Adaptation | Same runs as T1, evaluated at the last checkpoint (end of the cosine schedule) instead of the best val AUROC (D20) | `cnn_lr0.0003_last`, `vit_lr0.0001_last` | all | ready |
 | R1 | Baseline (handcrafted) | pyradiomics in the ROI, original image (107 features), same probe and splits (D21); one value per cell | `radiomics_original_logreg` | MRNet n/a (no ROI) | ready |
@@ -148,7 +160,7 @@ Results grids, one column per task with results. Generated from `outputs/results
 `uv run nnfb-predict table --update docs/progress.md`; do not edit by hand. `-` = not
 run yet; `ref` = `group_prior` (centre only), for tasks with centres.
 
-<!-- generated: design hecktor_* stoic_* -->
+<!-- generated: design hecktor_hpv_* stoic_* -->
 | ID | hecktor_hpv_pet_gtvp | stoic_covid | stoic_severe |
 |----|---|---|---|
 | F1 | 0.514 ± 0.061 / 0.765 ± 0.047 | 0.621 ± 0.014 / 0.787 ± 0.029 | 0.656 ± 0.023 / 0.760 ± 0.013 |
@@ -175,6 +187,12 @@ x 15 negatives), so these values are noisy.
 | T1-last | - / - |
 | R1 | 0.660 ± 0.100 |
 | ref | 0.500 ± 0.000 |
+<!-- end generated -->
+
+HECKTOR 2022 recurrence-free survival, **C-index** (D26, D27):
+
+<!-- generated: design hecktor2022_* -->
+No results yet.
 <!-- end generated -->
 
 LLD-MMRI, one column per MR phase (task `lld_mmri_malignant_<phase>`):
@@ -309,6 +327,16 @@ chosen on 10 val cases, tested on 51. Small, so expect noise.
 - E1 (leave-one-centre-out) is not workable on these centres: MDA is 30/31 positive, CHUM
   7/8, CHUV 1/4, so most held-out centres have no AUROC. Within-centre AUROC replaces it
   for HECKTOR.
+
+### hecktor2022_rfs_ct, hecktor2022_rfs_pet (C-index)
+
+<!-- generated: runs hecktor2022_rfs_pet -->
+No results yet.
+<!-- end generated -->
+
+<!-- generated: runs hecktor2022_rfs_ct -->
+No results yet.
+<!-- end generated -->
 
 ### stoic_severe
 
@@ -473,7 +501,6 @@ Results, 2026-11-19:
 | M3 | - / - | 0.505 ± 0.040 / 0.599 ± 0.027 | - / - | - / - | - / - |
 | M4 | - / - | 0.528 ± 0.011 / 0.629 ± 0.052 | - / - | - / - | - / - |
 | ref-age | 0.667 ± 0.031 | - | 0.667 ± 0.031 | 0.667 ± 0.031 | 0.667 ± 0.031 |
-| ref-age+site | - | - | - | - | - |
 | ref | n/a | n/a | n/a | n/a | n/a |
 <!-- end generated -->
 
@@ -637,6 +664,17 @@ None yet.
   mask (145) else automatic (307). Cox probes with C-index (D32, `nnfb-cox`,
   scikit-survival); `run_probes.sh` runs them for tasks with `time`/`event`. Prepare
   smoke-tested on 4 cases (2 expert, 2 automatic masks): ROI fully inside, ~3 s per case.
+- Added HECKTOR 2022 (D26): training and test pooled for recurrence-free survival, one
+  task per modality (`hecktor2022_rfs_ct`, `hecktor2022_rfs_pet`). Checked all 883
+  patients: masks on the CT grid (48 with one extra row or slice), PET in SUV, the
+  GTVp ∪ GTVn union under 192 mm everywhere. Preprocessing can now keep the ROI labels in
+  the exported mask and clamp intensities per task.
+- Survival probes (D27): ridge Cox (scikit-survival 0.28) with the penalty chosen on val
+  C-index, Harrell's and within-centre C-index, a survival `group_prior` (centre's events
+  per day of follow-up). New poolings for tasks with named ROIs: GTVp only (F5), GTVn only
+  (F6), concatenation (F7). Radiomics now always uses the union of the mask labels.
+  Smoke-tested end to end on 30 cases (CNN on CPU: CUDA does not initialise in the
+  container since its restart this morning); the smoke results were deleted.
 
 ### 2026-11-19
 - UPENN on the host: all 4 sequences prepared (452 cases, no failures, identical splits),
@@ -644,3 +682,8 @@ None yet.
   C-index; best ViT T2 F3 0.655 / 0.623; CNN near chance; fused concat (M2) 0.661.
 - `nnfb-cox` CLI fixed: a single-command typer app made `probe` an extra argument, so the
   first `run_probes.sh` pass skipped every Cox probe. A CLI test now covers it.
+- Merged `main` (Valentin: HECKTOR 2022 RFS D26, survival probes D27) into
+  `brats-glioma-type`. Our decisions renumbered D26-D30 -> D28-D32. New D33: survival-only
+  tasks (label = event) get Cox probes in `nnfb-features probe`; tasks with a binary label
+  plus time/event (UPENN) keep logistic probes and get Cox from `nnfb-cox`. BraTS and UPENN
+  tables regenerated with the merged code: same numbers.

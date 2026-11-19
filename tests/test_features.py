@@ -121,3 +121,38 @@ def test_fuse_refuses_tasks_with_different_splits(tmp_path, monkeypatch):
     (tmp_path / "processed" / "b" / "splits.json").write_text("[]")
     with pytest.raises(typer.Exit):
         features.fuse(["a", "b"], name="ab", model="vit", pooling=["roi_mean"], method=None)
+
+
+def test_pool_features_per_named_roi():
+    import numpy as np
+
+    from nnfoundation_bench.modeling.features import pool_features
+
+    fmap = np.zeros((1, 2, 1, 1), np.float32)
+    fmap[0, 0], fmap[0, 1] = 1.0, 3.0  # two cells along z
+    mask = np.zeros((4, 2, 2), np.uint8)
+    mask[:2] = 1  # GTVp fills the first cell
+    pooled = pool_features(fmap, mask, ((1, "gtvp"), (2, "gtvn")))
+    assert pooled["gtvp_mean"].tolist() == [1.0]
+    assert np.isnan(pooled["gtvn_mean"]).all()  # absent ROI -> NaN, imputed by the probe
+    mask[2:] = 2
+    pooled = pool_features(fmap, mask, ((1, "gtvp"), (2, "gtvn")))
+    assert pooled["gtvn_mean"].tolist() == [3.0]
+    assert pooled["roi_mean"].tolist() == [2.0]  # union
+
+
+def test_design_table_survival_rows_use_cox_runs():
+    import pandas as pd
+
+    from nnfoundation_bench.modeling.predict import design_table
+
+    summary = pd.Series(
+        {"vit_frozen_gtvp_mean_cox": "0.65 ± 0.02", "radiomics_original_cox": "0.66 ± 0.01"}
+    )
+    lines = design_table(
+        {"h22": summary}, kinds={"h22": "cox"}, headers={"h22": "h22 (C-index)"}
+    ).splitlines()
+    assert lines[0] == "| ID | h22 (C-index) |"
+    assert "| F5 | - / 0.65 ± 0.02 |" in lines
+    assert "| R1 | 0.66 ± 0.01 |" in lines
+    assert not any(line.startswith("| F7 ") for line in lines)  # no F7 run anywhere

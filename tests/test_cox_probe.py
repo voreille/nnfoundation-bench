@@ -78,3 +78,22 @@ def test_cli_exposes_probe_as_a_subcommand():
 
     result = CliRunner().invoke(cox_probe.app, ["probe", "--help"])
     assert result.exit_code == 0 and "--model" in result.output
+
+
+def test_survival_only_needs_label_equal_to_event(tmp_path, monkeypatch):
+    """D33: time/event plus a binary label of its own stays a classification task
+    (nnfb-cox gives its C-index); label = event makes it survival-only (D27)."""
+    import pytest
+    import typer
+
+    from nnfoundation_bench.modeling import survival
+
+    _survival_task(tmp_path, monkeypatch)
+    monkeypatch.setattr(survival, "PROCESSED_DATA_DIR", tmp_path / "processed")
+    assert not survival.is_survival("t")  # label 0, event 1: 1-year-style label
+    path = tmp_path / "processed" / "t" / "labels.csv"
+    labels = pd.read_csv(path)
+    labels.assign(label=labels["event"]).to_csv(path, index=False)
+    assert survival.is_survival("t") and survival.probe_kind("t") == "cox"
+    with pytest.raises(typer.Exit):
+        cox_probe.probe("t", model="vit", pooling=["roi_mean"], column=None)

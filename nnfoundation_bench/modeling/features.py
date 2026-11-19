@@ -22,8 +22,15 @@ from loguru import logger
 from tqdm import tqdm
 
 from nnfoundation_bench.config import CROP_SIZE, PROCESSED_DATA_DIR, RESULTS_DIR
+from nnfoundation_bench.datasets import get_task
 from nnfoundation_bench.modeling.predict import binary_metrics
 from nnfoundation_bench.modeling.runs import processed_task, results_dir
+from nnfoundation_bench.modeling.survival import (
+    fit_cox_probe,
+    probe_kind,
+    survival_metrics,
+    survival_table,
+)
 from nnfoundation_bench.weights import MODELS, get_checkpoint
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
@@ -33,6 +40,8 @@ ROI_MARGIN_MM = 10.0
 # Weighted means of real embeddings only: a per-channel max mixes coordinates from
 # different locations into a vector the encoder never produces (see D13).
 POOLINGS = ("mean", "roi_mean", "roi_margin_mean")
+# Concatenation of the per-ROI means (tasks with ``roi_names``), built at probe time.
+CONCAT_POOLING = "roi_concat_mean"
 # Inverse L2 strengths tried on the validation split.
 PROBE_CS = tuple(10.0**k for k in range(-4, 3))
 
@@ -41,8 +50,18 @@ def features_dir(task: str, model: str) -> Path:
     return PROCESSED_DATA_DIR / task / "features" / model
 
 
-def probe_run_name(model: str, pooling: str) -> str:
-    return f"{model}_frozen_{pooling}_logreg"
+def probe_run_name(model: str, pooling: str, kind: str = "logreg") -> str:
+    """``<model>_frozen_<pooling>_<logreg|cox>``."""
+    return f"{model}_frozen_{pooling}_{kind}"
+
+
+def task_poolings(task: str) -> tuple[str, ...]:
+    """POOLINGS, plus ``<roi>_mean`` per named ROI and their concatenation if the task has
+    named ROIs (e.g. GTVp and GTVn)."""
+    names = [name for _, name in get_task(task).roi_names]
+    if not names:
+        return POOLINGS
+    return (*POOLINGS, *(f"{n}_mean" for n in names), CONCAT_POOLING)
 
 
 def cell_weights(mask: np.ndarray, grid: tuple[int, ...]) -> np.ndarray:
@@ -64,11 +83,15 @@ def dilate(mask: np.ndarray, margin: float) -> np.ndarray:
     return distance_transform_edt(~mask.astype(bool)) <= margin
 
 
-def pool_features(feature_map: np.ndarray, mask: np.ndarray) -> dict[str, np.ndarray]:
+def pool_features(
+    feature_map: np.ndarray, mask: np.ndarray, roi_names: tuple[tuple[int, str], ...] = ()
+) -> dict[str, np.ndarray]:
     """Pool a (C, gz, gy, gx) map in every ``POOLINGS`` way; ``mask`` is (z, y, x) uint8.
 
-    ROI poolings weight each cell by the fraction of ROI voxels it holds. Without a ROI
-    they fall back to the whole-crop mean.
+    ROI poolings weight each cell by the fraction of ROI voxels it holds; ``roi`` is the
+    union of all mask values. Without a ROI they fall back to the whole-crop mean. Each
+    ``(value, name)`` of ``roi_names`` adds ``<name>_mean`` over ``mask == value``, NaN
+    when that ROI is absent (imputed in the probe like any missing value).
     """
     flat = feature_map.reshape(feature_map.shape[0], -1).astype(np.float32)
     pooled = {"mean": flat.mean(1)}
@@ -76,6 +99,11 @@ def pool_features(feature_map: np.ndarray, mask: np.ndarray) -> dict[str, np.nda
     for name, roi in (("roi", mask > 0), ("roi_margin", dilate(mask > 0, ROI_MARGIN_MM))):
         w = cell_weights(roi, grid).reshape(-1)
         pooled[f"{name}_mean"] = flat @ w / w.sum() if w.sum() > 0 else pooled["mean"]
+    for value, name in roi_names:
+        w = cell_weights(mask == value, grid).reshape(-1)
+        pooled[f"{name}_mean"] = (
+            flat @ w / w.sum() if w.sum() > 0 else np.full(len(flat), np.nan, np.float32)
+        )
     return pooled
 
 
@@ -143,13 +171,14 @@ def extract(
     if not todo:
         return
 
+    roi_names = get_task(task).roi_names
     encoder = build_encoder(model, device)
     for case in tqdm(todo, desc=f"{task} {model}"):
         image = torch.from_numpy(_read_b2nd(root / "images" / f"{case}.b2nd"))[None]
         mask = _read_b2nd(root / "masks" / f"{case}.b2nd")[0]
         with torch.no_grad(), torch.autocast(torch.device(device).type, dtype=torch.bfloat16):
             fmap = feature_map(encoder, image.to(device)).float()[0].cpu().numpy()
-        arrays = pool_features(fmap, mask)
+        arrays = pool_features(fmap, mask, roi_names)
         if save_maps:
             arrays["map"] = fmap.astype(np.float16)
         tmp = out_dir / f".partial.{case}.npz"
@@ -162,7 +191,7 @@ def extract(
                 "checkpoint": MODELS[model].repo + "@" + MODELS[model].revision,
                 "feature_dim": int(fmap.shape[0]),
                 "grid": list(fmap.shape[1:]),
-                "poolings": list(POOLINGS),
+                "poolings": [p for p in task_poolings(task) if p != CONCAT_POOLING],
                 "roi_margin_mm": ROI_MARGIN_MM,
                 "precision": "bf16 autocast",
             },
@@ -173,6 +202,11 @@ def extract(
 
 
 def load_pooled(task: str, model: str, pooling: str, cases: list[str]) -> np.ndarray:
+    """(cases x features) matrix of one pooling; ``roi_concat_mean`` stacks the per-ROI
+    means side by side."""
+    if pooling == CONCAT_POOLING:
+        parts = [p for p in task_poolings(task) if p not in (*POOLINGS, CONCAT_POOLING)]
+        return np.hstack([load_pooled(task, model, p, cases) for p in parts])
     folder = features_dir(task, model)
     return np.stack([np.load(folder / f"{c}.npz")[pooling] for c in cases])
 
@@ -246,29 +280,49 @@ def probe_folds(
     select=None,
     l1_ratios=(0.0,),
 ) -> list[float]:
-    """Fit ``fit_probe`` on every fold; ``x`` rows follow ``task_labels`` order.
+    """Fit ``fit_probe`` (or ``fit_cox_probe`` on survival tasks) on every fold; ``x``
+    rows follow ``task_labels`` order.
 
     ``select(x_train) -> column indices`` (optional) picks features on each fold's train
     cases only, e.g. ``correlation_filter``. Writes ``outputs/results/<task>/<run>/
     fold<k>/`` (metrics.json, predictions.csv) like fine-tuned runs and returns the test
-    AUROC per fold.
+    AUROC (C-index for survival tasks) per fold.
     """
     cases, y, splits = task_labels(task)
+    survival = survival_table(task)
+    if survival is not None:
+        if l1_ratios != (0.0,):
+            raise ValueError("Survival tasks only have the ridge Cox probe")
+        time = survival.loc[cases, "time"].to_numpy(float)
+        event = survival.loc[cases, "event"].to_numpy(int)
     index = {c: i for i, c in enumerate(cases)}
-    aucs = []
+    scores_per_fold = []
     for fold, split in enumerate(splits):
         idx = {k: np.array([index[c] for c in v]) for k, v in split.items()}
         cols = np.arange(x.shape[1]) if select is None else select(x[idx["train"]])
-        scores, params, val_auc = fit_probe(x[:, cols], y, idx, l1_ratios=l1_ratios)
-        info = {
-            "probe_C": params["C"],
-            "probe_l1_ratio": params["l1_ratio"],
-            "num_features": len(cols),
-            "val_auroc": val_auc,
-        }
-        aucs.append(save_fold(task, run, fold, split["test"], y[idx["test"]], scores, info))
-    logger.info(f"{run}: test AUROC {np.nanmean(aucs):.4f} ± {np.nanstd(aucs, ddof=1):.4f}")
-    return aucs
+        test = pd.DataFrame({"case_id": split["test"], "label": y[idx["test"]]})
+        metrics = {"task": task, "run": run, "fold": fold, "num_features": len(cols)}
+        if survival is None:
+            scores, params, val = fit_probe(x[:, cols], y, idx, l1_ratios=l1_ratios)
+            test["score"] = scores
+            metrics |= {"probe_C": params["C"], "probe_l1_ratio": params["l1_ratio"]}
+            metrics |= {"val_auroc": val}
+            metrics |= binary_metrics(test["label"].to_numpy(), scores)
+            key = "auroc"
+        else:
+            scores, params, val = fit_cox_probe(x[:, cols], time, event, idx)
+            test = test.assign(time=time[idx["test"]], event=event[idx["test"]], score=scores)
+            metrics |= {"probe_alpha": params["alpha"], "val_cindex": val}
+            metrics |= survival_metrics(test["event"].to_numpy(), test["time"].to_numpy(), scores)
+            key = "cindex"
+        out_dir = results_dir(task, run, fold)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        test.to_csv(out_dir / "predictions.csv", index=False)
+        (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
+        scores_per_fold.append(metrics[key])
+    mean, std = np.nanmean(scores_per_fold), np.nanstd(scores_per_fold, ddof=1)
+    logger.info(f"{run}: test {key} {mean:.4f} ± {std:.4f}")
+    return scores_per_fold
 
 
 def save_fold(task, run, fold, cases, labels, scores, info: dict) -> float:
@@ -291,10 +345,15 @@ def probe(
         list[str] | None, typer.Option(help="Poolings to probe (default: all)")
     ] = None,
 ) -> None:
-    """Linear probe on frozen features, every fold; writes outputs/results/TASK/<run>/."""
+    """Linear probe on frozen features, every fold; writes outputs/results/TASK/<run>/.
+
+    Logistic regression, or ridge Cox on survival tasks (runs ``..._cox``).
+    """
     cases, _, _ = task_labels(task)
-    for pool in pooling or POOLINGS:
-        probe_folds(task, probe_run_name(model, pool), load_pooled(task, model, pool, cases))
+    kind = probe_kind(task)
+    for pool in pooling or task_poolings(task):
+        x = load_pooled(task, model, pool, cases)
+        probe_folds(task, probe_run_name(model, pool, kind), x)
 
 
 FUSIONS = ("concat", "mean", "stack")

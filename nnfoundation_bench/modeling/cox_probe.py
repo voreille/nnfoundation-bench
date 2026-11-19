@@ -146,6 +146,10 @@ def probe(
     ] = None,
 ) -> None:
     """Cox probe per fold, C-index on test; results like the AUROC probes, run ``*_cox``."""
+    from nnfoundation_bench.modeling.survival import is_survival
+
+    if is_survival(task):  # its own probes are Cox already, under the same run names
+        raise typer.Exit(f"{task} is a survival-only task: use nnfb-features probe (D27, D33)")
     cases, _, _ = task_labels(task)
     if model in MODELS:
         for pool in pooling or POOLINGS:

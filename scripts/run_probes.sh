@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Frozen-feature probes (F1-F3) and the radiomics baseline (R1) for one prepared task,
-# confounder references, Cox probes for survival tasks, then the design grid.
+# Frozen-feature probes (F1-F3, plus F5-F7 on tasks with several named ROIs) and the
+# radiomics baseline (R1) for one prepared task, confounder references, Cox probes
+# for tasks with a binary label plus time/event (nnfb-cox), then the design grid.
 # Meant to run on the host, after `nnfb-data prepare TASK`.
 #
 #   scripts/run_probes.sh TASK
@@ -70,8 +71,12 @@ if has_column age; then
   fi
 fi
 
-# Survival tasks (labels.csv with time and event): Cox probes, C-index (D32)
-if has_column time && has_column event; then
+# Tasks with a binary label plus time and event (UPENN): Cox probes via nnfb-cox, C-index
+# (D32). Survival-only tasks (label = event, D27) got their Cox probes above (D33).
+survival_only() {
+  uv run python -c "import sys; from nnfoundation_bench.modeling.survival import is_survival; sys.exit(0 if is_survival('$TASK') else 1)"
+}
+if has_column time && has_column event && ! survival_only; then
   echo "== Cox probes (C-index)"
   for model in $MODELS; do
     uv run nnfb-cox probe "$TASK" --model "$model"

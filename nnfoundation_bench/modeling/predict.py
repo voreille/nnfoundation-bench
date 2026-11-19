@@ -22,6 +22,13 @@ from nnfoundation_bench.modeling.runs import (
     run_dir,
     run_name,
 )
+from nnfoundation_bench.modeling.survival import (
+    group_hazard_scores,
+    probe_kind,
+    survival_metrics,
+    survival_table,
+    within_group_cindex,
+)
 from nnfoundation_bench.weights import MODELS
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
@@ -131,22 +138,29 @@ def group_baseline(task: str) -> None:
     """Reference run 'group_prior': predict from the case's group (e.g. centre) alone.
 
     Needs a ``group`` column in labels.csv. Shows how much of a task is solvable from
-    confounders; model AUROCs should be read against it.
+    confounders; model AUROCs should be read against it. Survival tasks: risk = the
+    group's events per day of follow-up, scored by C-index.
     """
     root = PROCESSED_DATA_DIR / processed_task(task)
-    labels = pd.read_csv(root / "labels.csv")
+    labels = pd.read_csv(root / "labels.csv", dtype={"case_id": str})
     if "group" not in labels:
         raise typer.Exit(f"{task} has no group column in labels.csv")
     labels = labels[labels["case_id"].isin(json.loads((root / "labels.json").read_text()))]
+    survival = survival_table(task) is not None
+    key = metric_key(task)
     for fold, split in enumerate(json.loads((root / "splits.json").read_text())):
-        cases = group_prior_scores(labels, split)
+        if survival:
+            cases = group_hazard_scores(labels, split)
+            scores = survival_metrics(cases["event"], cases["time"], cases["score"])
+        else:
+            cases = group_prior_scores(labels, split)
+            scores = binary_metrics(cases["label"].to_numpy(), cases["score"].to_numpy())
         out_dir = results_dir(task, "group_prior", fold)
         out_dir.mkdir(parents=True, exist_ok=True)
         cases.to_csv(out_dir / "predictions.csv", index=False)
-        metrics = {"task": task, "run": "group_prior", "fold": fold}
-        metrics |= binary_metrics(cases["label"].to_numpy(), cases["score"].to_numpy())
+        metrics = {"task": task, "run": "group_prior", "fold": fold} | scores
         (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
-        logger.info(f"group_prior fold {fold}: AUROC {metrics['auroc']:.4f}")
+        logger.info(f"group_prior fold {fold}: {key} {metrics[key]:.4f}")
 
 
 def covariate_matrix(labels: pd.DataFrame, columns: list[str]) -> np.ndarray:
@@ -162,8 +176,8 @@ def covariate_matrix(labels: pd.DataFrame, columns: list[str]) -> np.ndarray:
     return np.hstack(parts)
 
 
-def covariate_run_name(columns: list[str]) -> str:
-    return "covariates_" + "_".join(columns) + "_logreg"
+def covariate_run_name(columns: list[str], kind: str = "logreg") -> str:
+    return "covariates_" + "_".join(columns) + f"_{kind}"
 
 
 @app.command("covariate-baseline")
@@ -188,12 +202,13 @@ def covariate_baseline(
     if missing := [c for c in columns if c not in labels]:
         raise typer.Exit(f"{task}: no column {missing} in labels.csv")
     cases, _, _ = task_labels(task)
-    probe_folds(task, covariate_run_name(columns), covariate_matrix(labels.loc[cases], columns))
+    run = covariate_run_name(columns, probe_kind(task))  # Cox on survival-only tasks
+    probe_folds(task, run, covariate_matrix(labels.loc[cases], columns))
 
 
 @app.command()
 def summarize(task: str) -> None:
-    """Mean/std AUROC over folds for every evaluated run of TASK."""
+    """Mean/std AUROC (C-index for survival tasks) over folds for every run of TASK."""
     rows = [
         json.loads(p.read_text())
         for p in sorted((RESULTS_DIR / task).glob("*/fold*/metrics.json"))
@@ -201,32 +216,47 @@ def summarize(task: str) -> None:
     if not rows:
         raise typer.Exit(f"No results under {RESULTS_DIR / task}")
     df = pd.DataFrame(rows)
-    summary = df.groupby("run")["auroc"].agg(["mean", "std", "count"]).sort_values("mean")
+    summary = df.groupby("run")[metric_key(task)].agg(["mean", "std", "count"])
+    summary = summary.sort_values("mean")
     summary.to_csv(RESULTS_DIR / task / "summary.csv")
     typer.echo(summary.to_string(float_format="%.4f"))
 
 
-# Design-benchmark rows (docs/progress.md) -> run name per pretrained model.
+# Design-benchmark rows (docs/progress.md) -> run name, given the pretrained model ``m``
+# and the probe kind ``p`` (``logreg``, or ``cox`` on survival tasks).
 DESIGN_RUNS = {
-    "F1": lambda m: f"{m}_frozen_mean_logreg",
-    "F2": lambda m: f"{m}_frozen_roi_mean_logreg",
-    "F3": lambda m: f"{m}_frozen_roi_margin_mean_logreg",
-    "T1": lambda m: run_name(m),
-    "T1-last": lambda m: eval_run_name(run_name(m), "last"),
+    "F1": lambda m, p: f"{m}_frozen_mean_{p}",
+    "F2": lambda m, p: f"{m}_frozen_roi_mean_{p}",
+    "F3": lambda m, p: f"{m}_frozen_roi_margin_mean_{p}",
+    # Tasks with several named ROIs (HECKTOR 2022: GTVp, GTVn; D27).
+    "F5": lambda m, p: f"{m}_frozen_gtvp_mean_{p}",
+    "F6": lambda m, p: f"{m}_frozen_gtvn_mean_{p}",
+    "F7": lambda m, p: f"{m}_frozen_roi_concat_mean_{p}",
+    "T1": lambda m, p: run_name(m),
+    "T1-last": lambda m, p: eval_run_name(run_name(m), "last"),
     # Model-independent rows (one value per cell): handcrafted radiomics baselines.
     # R2-R5 (filtered set, correlation filter, elastic net) were dropped (D25); their past
     # runs still show in the runs tables.
-    "R1": "radiomics_original_logreg",
+    "R1": lambda p: f"radiomics_original_{p}",
     # Late fusion of per-modality ROI-mean embeddings (D14, D30), on a fused task
     # (``nnfb-features fuse``): concatenation, mean, score stacking on val.
-    "M2": lambda m: f"{m}_fused_concat_roi_mean_logreg",
-    "M3": lambda m: f"{m}_fused_mean_roi_mean_logreg",
-    "M4": lambda m: f"{m}_fused_stack_roi_mean_logreg",
+    "M2": lambda m, p: f"{m}_fused_concat_roi_mean_{p}",
+    "M3": lambda m, p: f"{m}_fused_mean_roi_mean_{p}",
+    "M4": lambda m, p: f"{m}_fused_stack_roi_mean_{p}",
     # Confounder references from labels.csv covariates (D29); ``ref`` (group alone) is
     # the last row of the grid.
-    "ref-age": "covariates_age_logreg",
-    "ref-age+site": "covariates_age_group_logreg",
+    "ref-age": lambda p: f"covariates_age_{p}",
+    "ref-age+site": lambda p: f"covariates_age_group_{p}",
 }
+
+
+def metric_key(task: str) -> str:
+    """metrics.json key of the task's main metric: ``cindex`` or ``auroc``."""
+    return "cindex" if survival_table(task) is not None else "auroc"
+
+
+def metric_label(task: str) -> str:
+    return "C-index" if survival_table(task) is not None else "AUROC"
 
 
 def task_groups(task: str) -> pd.Series | None:
@@ -239,33 +269,40 @@ def task_groups(task: str) -> pd.Series | None:
 
 
 def auroc_stats(task: str, within_group: bool = False) -> pd.DataFrame:
-    """Test AUROC ``mean``, ``std`` and fold ``count`` per run of TASK (empty if none).
+    """Test ``mean``, ``std`` and fold ``count`` of the task's metric per run (AUROC, or
+    C-index on survival tasks); empty if nothing is evaluated.
 
-    ``within_group`` recomputes each fold's AUROC from its ``predictions.csv`` with
-    ``within_group_auroc`` (tasks with a ``group`` column; empty otherwise).
+    ``within_group`` recomputes each fold's metric from its ``predictions.csv`` with
+    ``within_group_auroc`` / ``within_group_cindex`` (tasks with a ``group`` column;
+    empty otherwise).
     """
     empty = pd.DataFrame(columns=["mean", "std", "count"])
+    key = metric_key(task)
     if not within_group:
         paths = (RESULTS_DIR / task).glob("*/fold*/metrics.json")
-        # Cox runs (nnfb-cox) report a C-index instead and are left out here.
-        rows = [r for p in paths if "auroc" in (r := json.loads(p.read_text()))]
+        # Only runs reporting the task's metric: nnfb-cox runs on a task with a binary
+        # label (D32) report a C-index and are left out of its AUROC tables.
+        rows = [r for p in paths if key in (r := json.loads(p.read_text()))]
     elif (groups := task_groups(task)) is None:
         return empty
     else:
         rows = []
         for path in (RESULTS_DIR / task).glob("*/fold*/predictions.csv"):
             cases = pd.read_csv(path, dtype={"case_id": str})
-            if "score" not in cases:  # Cox runs: risk, not a class score
+            if "score" not in cases:  # nnfb-cox runs (D32): ``risk``, no class score
                 continue
-            auroc = within_group_auroc(
-                cases["label"].to_numpy(),
-                cases["score"].to_numpy(),
-                cases["case_id"].map(groups).to_numpy(),
-            )
-            rows.append({"run": path.parent.parent.name, "auroc": auroc})
+            group = cases["case_id"].map(groups).to_numpy()
+            score = cases["score"].to_numpy()
+            if key == "cindex":
+                value = within_group_cindex(
+                    cases["event"].to_numpy(), cases["time"].to_numpy(), score, group
+                )
+            else:
+                value = within_group_auroc(cases["label"].to_numpy(), score, group)
+            rows.append({"run": path.parent.parent.name, key: value})
     if not rows:
         return empty
-    return pd.DataFrame(rows).groupby("run")["auroc"].agg(["mean", "std", "count"])
+    return pd.DataFrame(rows).groupby("run")[key].agg(["mean", "std", "count"])
 
 
 def format_auroc(row: pd.Series, n_folds: int = 5) -> str:
@@ -283,32 +320,46 @@ def auroc_summary(task: str, within_group: bool = False) -> pd.Series:
 def design_table(
     summaries: dict[str, pd.Series],
     models: tuple[str, ...] = ("cnn", "vit"),
+    kinds: dict[str, str] | None = None,
+    headers: dict[str, str] | None = None,
     designs: dict | None = None,
     ref: str | None = "group_prior",
 ) -> str:
     """Markdown grid: one row per design, one column per task, cells ``CNN / ViT``
-    (one value for model-independent rows such as radiomics). ``designs`` defaults to
-    ``DESIGN_RUNS``; ``ref`` (last row) is left out when None."""
-    lines = ["| ID | " + " | ".join(summaries) + " |", "|----|" + "---|" * len(summaries)]
+    (one value for model-independent rows such as radiomics).
+
+    ``kinds`` gives each task's probe kind (default ``logreg``), ``headers`` its column
+    title (default the task name). Rows without any run in these tasks are left out.
+    ``designs`` defaults to ``DESIGN_RUNS``; ``ref`` (last row) is left out when None.
+    """
+    kinds, headers = kinds or {}, headers or {}
+    titles = [headers.get(t, t) for t in summaries]
+    lines = ["| ID | " + " | ".join(titles) + " |", "|----|" + "---|" * len(summaries)]
     for design, run in (designs or DESIGN_RUNS).items():
-        if isinstance(run, str):
-            cells = [s.get(run, "-") for s in summaries.values()]
-        else:
-            cells = [" / ".join(s.get(run(m), "-") for m in models) for s in summaries.values()]
-        lines.append(f"| {design} | " + " | ".join(cells) + " |")
+        single = run.__code__.co_argcount == 1
+        cells, found = [], False
+        for task, s in summaries.items():
+            p = kinds.get(task, "logreg")
+            names = [run(p)] if single else [run(m, p) for m in models]
+            found |= any(n in s for n in names)
+            cells.append(" / ".join(s.get(n, "-") for n in names))
+        if found or design in ("F1", "F2", "F3", "T1", "T1-last", "R1"):
+            lines.append(f"| {design} | " + " | ".join(cells) + " |")
     if ref is not None:
         cells = [s.get(ref, "n/a") for s in summaries.values()]
         lines.append("| ref | " + " | ".join(cells) + " |")
     return "\n".join(lines)
 
 
-# C-index grid (``<!-- generated: cindex [patterns] -->``): Cox probes of nnfb-cox (D32).
+# C-index grid (``<!-- generated: cindex [patterns] -->``): Cox probes of nnfb-cox (D32),
+# for tasks with a binary label plus time/event (UPENN). Survival-only tasks (D27) show
+# their C-index in the ``design`` grid instead.
 COX_DESIGN_RUNS = {
-    "F1": lambda m: f"{m}_frozen_mean_cox",
-    "F2": lambda m: f"{m}_frozen_roi_mean_cox",
-    "F3": lambda m: f"{m}_frozen_roi_margin_mean_cox",
-    "R1": "radiomics_original_cox",
-    "ref-age": "covariates_age_cox",
+    "F1": lambda m, p: f"{m}_frozen_mean_cox",
+    "F2": lambda m, p: f"{m}_frozen_roi_mean_cox",
+    "F3": lambda m, p: f"{m}_frozen_roi_margin_mean_cox",
+    "R1": lambda p: "radiomics_original_cox",
+    "ref-age": lambda p: "covariates_age_cox",
 }
 
 
@@ -322,20 +373,27 @@ def cindex_summary(task: str) -> pd.Series:
     return stats.apply(format_auroc, axis=1)
 
 
-def design_ids(models: tuple[str, ...] = ("cnn", "vit")) -> dict[str, str]:
+def design_ids(models: tuple[str, ...] = ("cnn", "vit"), kind: str = "logreg") -> dict[str, str]:
     """Run name -> design ID (``F1``...), plus ``ref`` for ``group_prior``."""
     ids = {"group_prior": "ref"}
     for design, run in DESIGN_RUNS.items():
-        for name in [run] if isinstance(run, str) else [run(m) for m in models]:
+        single = run.__code__.co_argcount == 1
+        for name in [run(kind)] if single else [run(m, kind) for m in models]:
             ids[name] = design
     return ids
 
 
-def runs_table(stats: pd.DataFrame, within: pd.DataFrame | None = None) -> str:
-    """Markdown table of every run of one task, best mean AUROC first; with ``within``
-    (within-group AUROC per run), a second AUROC column."""
-    ids = design_ids()
-    header = "| Run | Design | AUROC |" + (" Within-centre AUROC |" if within is not None else "")
+def runs_table(
+    stats: pd.DataFrame,
+    within: pd.DataFrame | None = None,
+    kind: str = "logreg",
+    metric: str = "AUROC",
+) -> str:
+    """Markdown table of every run of one task, best mean first; with ``within``
+    (within-group metric per run), a second metric column."""
+    ids = design_ids(kind=kind)
+    header = f"| Run | Design | {metric} |"
+    header += f" Within-centre {metric} |" if within is not None else ""
     lines = [header, "|" + "---|" * header.count(" |")]
     for run, row in stats.sort_values("mean", ascending=False).iterrows():
         line = f"| `{run}` | {ids.get(run, '')} | {format_auroc(row)} |"
@@ -351,7 +409,8 @@ def runs_table(stats: pd.DataFrame, within: pd.DataFrame | None = None) -> str:
 #   <!-- generated: runs <task> -->                  ...  <!-- end generated -->
 #   <!-- generated: cindex [patterns...] -->         ...  <!-- end generated -->
 # design-within: within-centre AUROC, for the tasks that have a group column.
-# cindex: test C-index of the Cox probes (nnfb-cox), for tasks with survival labels.
+# cindex: C-index of the nnfb-cox probes (D32), for tasks with a binary label plus
+# time/event; survival-only tasks (D27) show their C-index in the design grids.
 GENERATED_BLOCK = re.compile(
     r"(?P<open><!-- generated: (?P<spec>[^>]*?) -->\n).*?(?P<close><!-- end generated -->)",
     re.DOTALL,
@@ -371,7 +430,11 @@ def render_block(spec: str) -> str:
         tasks = [t for t in match_tasks(args) if not within or task_groups(t) is not None]
         if not tasks:
             return "No results yet."
-        return design_table({task: auroc_summary(task, within) for task in tasks})
+        return design_table(
+            {task: auroc_summary(task, within) for task in tasks},
+            kinds={task: probe_kind(task) for task in tasks},
+            headers={t: f"{t} ({metric_label(t)})" for t in tasks if metric_label(t) != "AUROC"},
+        )
     if kind == "cindex":
         summaries = {t: cindex_summary(t) for t in match_tasks(args)}
         summaries = {t: s for t, s in summaries.items() if len(s)}
@@ -379,11 +442,12 @@ def render_block(spec: str) -> str:
             return "No results yet."
         return design_table(summaries, designs=COX_DESIGN_RUNS, ref=None)
     if kind == "runs" and len(args) == 1:
-        stats = auroc_stats(args[0])
+        task = args[0]
+        stats = auroc_stats(task)
         if not len(stats):
             return "No results yet."
-        has_groups = task_groups(args[0]) is not None
-        return runs_table(stats, auroc_stats(args[0], within_group=True) if has_groups else None)
+        within = auroc_stats(task, within_group=True) if task_groups(task) is not None else None
+        return runs_table(stats, within, kind=probe_kind(task), metric=metric_label(task))
     raise ValueError(f"Unknown generated block: {spec!r}")
 
 

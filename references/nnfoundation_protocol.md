@@ -125,6 +125,17 @@ datasets" matches the 8 test rows; RSNA Spine and MRNet were used only for devel
 - Deviation: CT below -1024 HU (scanner padding outside the reconstruction circle, ~22% of
   each scan) is clamped to -1024 before the z-score (D19).
 
+### `hecktor2022_rfs_<ct|pet>` (not in the paper: survival, our own task)
+- Data: HECKTOR 2022 training (524 patients, 7 centres) and test (359, 3 centres; ground
+  truth released after the challenge), pooled: the 827 patients with an endpoint, 174
+  relapses (D26). NIfTI from the organisers: CT in HU, PET in SUV, masks GTVp = 1, GTVn = 2.
+- Crop centred on GTVp ∪ GTVn (fits in 192 mm in every case); PET and CT share the centre,
+  so their crops are on the same grid. The exported mask keeps labels 1/2.
+- Target: recurrence-free survival (`RFS` days, `Relapse` event), challenge Task 2.
+- Deviations: not a classification task, so it needs a survival probe and the C-index
+  instead of AUROC; glovita fine-tuning (classification only) does not apply as is. CT
+  below -1024 HU is clamped, as for RSNA (D19). Splits stratify on centre x event.
+
 ### `brats_gbm_<sequence>` (not in the paper)
 - Data: BraTS 2024 adult glioma, post-treatment (Synapse). Images are already 1 mm,
   co-registered and skull-stripped (182 x 218 x 182). One task per sequence (D28).
