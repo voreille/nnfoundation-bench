@@ -23,6 +23,7 @@ as input channels, ROI handling, and how to pool features within a ROI.
 | `stoic_severe`, `stoic_covid` | 2000 scans | both prepared: 2000 cases, no failures; `stoic_covid` links the crops, features and radiomics of `stoic_severe` | frozen probes and radiomics done for both |
 | `rsna_spine_fracture` | 2019 studies unpacked on the NAS, checked (961 positive) | prepare on the host stopped at 1792 of 2019 (tmux session killed 2026-11-18 08:13); rerun resumes | none yet |
 | `upenn_os_*` (4 sequences) | 452 patients on the NAS (`UPENN_GBM`) + OS labels placed by hand (`GBM-UPENN-OS`), all 4 sequences, a mask for each (145 expert) | all 4 prepared on the host: 452 cases, 226 survived 1 year, no failures, no missing ROI; identical labels and splits (D29) | probes, radiomics, age reference, Cox / C-index (D30), fusion (`upenn_os_fused`) done |
+| `hecktor22_rfs_pet`, `hecktor22_rfs_ct` | HECKTOR 2022 challenge on the NAS (training + test with ground truth, `data/raw/HECKTOR2022/`), 827 patients with RFS, all CT, PET and masks present | labels checked on real data (714 labelled, 692 with GTVp); prepare smoke-tested on 4 cases x PET/CT (D31) | none yet |
 | `brats_gbm_*` (4 sequences) | 1809 scans on the NAS, 1621 with seg; metadata xlsx read | all 4 prepared on the host: 632 cases, 384 GBM, no failures, no missing ROI; identical labels and splits (D26) | probes, radiomics, site and age references, fusion (`brats_gbm_fused`) done |
 
 Next steps:
@@ -32,15 +33,18 @@ Next steps:
    (see Results) and age-adjusted probes (D27 open).
 3. UPENN survival: probes, Cox and fusion done; age alone beats every imaging probe. Next:
    age + imaging probes (AUROC and Cox) to test whether imaging adds anything over age.
-4. RSNA: resume `prepare rsna_spine_fracture`, then `RADIOMICS="original"
+4. HECKTOR 2022 RFS: `prepare hecktor22_rfs_<pet|ct>` on the host, then
+   `scripts/run_probes.sh` (AUROC, within-centre AUROC, age / age+HPV / centre references,
+   Cox / C-index, D31).
+5. RSNA: resume `prepare rsna_spine_fracture`, then `RADIOMICS="original"
    scripts/run_probes.sh rsna_spine_fracture`.
-5. Fine-tuning baseline with glovita: `FOLDS=0 scripts/run_benchmark.sh hecktor_hpv_pet_gtvp`
+6. Fine-tuning baseline with glovita: `FOLDS=0 scripts/run_benchmark.sh hecktor_hpv_pet_gtvp`
    (design T1).
-6. Input-size designs S2-S7: add `--fov` / `--mode` to `nnfb-features extract`, then run
+7. Input-size designs S2-S7: add `--fov` / `--mode` to `nnfb-features extract`, then run
    the FOV sweep.
-7. LLD-MMRI late fusion over the phases (M2-M4, D14, D15, D28): `nnfb-features fuse` is ready.
-8. KiTS Liver full run (background, paper reproduction).
-9. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
+8. LLD-MMRI late fusion over the phases (M2-M4, D14, D15, D28): `nnfb-features fuse` is ready.
+9. KiTS Liver full run (background, paper reproduction).
+10. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
    "pathology"). Each task needs about 12 GB in `data/processed`. See D12.
 
 ## Backlog
@@ -512,6 +516,23 @@ Results, 2026-11-19:
 | `cnn_fused_mean_roi_mean_logreg` | M3 | 0.505 ± 0.040 |
 <!-- end generated -->
 
+### hecktor22_rfs_*
+
+None yet. 692 patients (GTVp present), 134 recurrences within 2 years, 169 events overall;
+9 centres. AUROC (2-year recurrence), within-centre AUROC, then the C-index (D30, D31):
+
+<!-- generated: design hecktor22_* -->
+No results yet.
+<!-- end generated -->
+
+<!-- generated: design-within hecktor22_* -->
+No results yet.
+<!-- end generated -->
+
+<!-- generated: cindex hecktor22_* -->
+No results yet.
+<!-- end generated -->
+
 ### kits_liver
 
 None yet.
@@ -644,3 +665,9 @@ None yet.
   C-index; best ViT T2 F3 0.655 / 0.623; CNN near chance; fused concat (M2) 0.661.
 - `nnfb-cox` CLI fixed: a single-command typer app made `probe` an extra argument, so the
   first `run_probes.sh` pass skipped every Cox probe. A CLI test now covers it.
+- HECKTOR 2022 recurrence-free survival added (D31): `hecktor22_rfs_<pet|ct>` on the
+  challenge release Valentin linked (training + test pooled, 9 centres). Label = recurrence
+  within 2 years; 113 patients censored earlier dropped; 714 labelled, 692 with GTVp
+  (134 positive, 169 events). New references age + HPV (AUROC and Cox) and centre (Cox).
+  Prepare smoke-tested on 4 cases x 2 modalities: GTVp fully inside the crop, ~7-20 s per
+  case; the case without GTVp is flagged for exclusion.

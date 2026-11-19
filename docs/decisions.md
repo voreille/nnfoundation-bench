@@ -538,3 +538,36 @@ Implements M2-M4 of D14.
 - **Open:** align with Valentin's `modeling/survival.py` when it is pushed (named
   `cox_probe.py` / `nnfb-cox` here to avoid a merge clash). Fine-tuning for survival is not
   covered (glovita trains classifiers only).
+
+## D31. HECKTOR 2022 recurrence-free survival: 2-year label plus time/event, PET and CT (active, 2026-11-19)
+- **Fact:** the HECKTOR 2022 challenge release (NAS, linked as `data/raw/HECKTOR2022/`, the
+  three folders Valentin set up) has NIfTI CT (HU), PET (SUV, own grid) and masks on the CT
+  grid (1 GTVp, 2 GTVn) for 524 training (7 centres) + 359 test patients (CHB, MDA, USZ), the
+  clinical tables for both (age, sex, HPV, tobacco, alcohol, surgery, chemo) and the
+  recurrence-free survival endpoint (`Relapse`, `RFS` in days) for 488 + 339 of them.
+  Censored data: 169 recurrences among the 795 endpoint patients with a GTVp. 34 patients
+  have no GTVp in their mask. Overall survival is not in the release (only MDA has it, in
+  the TCIA clinical file), so RFS is the survival endpoint here (user's choice).
+- **Choice:**
+  - Two tasks `hecktor22_rfs_<pet|ct>`, crop centred on GTVp (as `hecktor_hpv_pet_gtvp`),
+    identical labels and splits (late fusion applies, D28). The challenge's training and
+    test cohorts are pooled; our own 5 x 40/10/50 splits stratify on centre x label.
+  - `label` = recurrence within 2 years (`Relapse` and `RFS < 730`); 0 = recurrence-free at
+    2 years (`RFS >= 730`). ASSUMPTION. Patients censored before 2 years without recurrence
+    (113) have no 2-year status and are dropped from the task, the Cox probes included, so
+    AUROC and C-index use one cohort. 2 years holds ~85% of recurrences (median 337 days).
+  - Cases without GTVp are excluded by `prepare` (`require_roi`). Expected: 692 patients,
+    134 recurrences within 2 years, 169 events.
+  - `labels.csv` keeps `time`, `event`, `age`, `hpv` (NaN when unknown, 482 of 714 known),
+    `group` (centre) and `cohort` (challenge train/test). New references: age + HPV
+    (`ref-age+hpv`, AUROC and Cox: HPV status is the main known prognostic factor in
+    oropharyngeal cancer) and centre alone in the Cox grid (`ref-site`, one-hot `group`).
+- **Why:** the largest survival cohort with expert ROI masks we have, multi-centre and with
+  censoring (unlike UPENN, D29); PET is the modality of our current HECKTOR task.
+- **Rejected:** 1-year label (only 88 positives); 3-year label (218 patients lost);
+  `Relapse` at any time as the label (depends on follow-up length, which differs by
+  centre); keeping the challenge's train/test split (one split only, unseen test centres).
+- **Open:** Harrell's C is used as in the challenge, but with censoring it depends on the
+  follow-up distribution (Uno's C would correct it). Follow-up differs by centre (median RFS
+  MDA ~6 years, CHB ~2 years): read the within-centre AUROC next to plain AUROC. GTVn and
+  PET + CT fusion are left for later.

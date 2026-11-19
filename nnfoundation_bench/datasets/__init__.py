@@ -7,6 +7,7 @@ To add a dataset: create ``datasets/<source>.py`` exposing one or more
 from nnfoundation_bench.datasets.base import CaseInputs, ClassificationTask
 from nnfoundation_bench.datasets.brats import BRATS_TASKS
 from nnfoundation_bench.datasets.hecktor import HECKTOR_HPV_PET_GTVP
+from nnfoundation_bench.datasets.hecktor2022 import HECKTOR22_RFS_TASKS
 from nnfoundation_bench.datasets.kits import KITS_LIVER
 from nnfoundation_bench.datasets.lld_mmri import LLD_MMRI_TASKS
 from nnfoundation_bench.datasets.mrnet import MRNET_TASKS
@@ -25,6 +26,7 @@ TASKS: dict[str, ClassificationTask] = {
         RSNA_SPINE_FRACTURE,
         *BRATS_TASKS,
         *UPENN_OS_TASKS,
+        *HECKTOR22_RFS_TASKS,
     )
 }
 

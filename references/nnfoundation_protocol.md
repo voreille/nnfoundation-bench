@@ -139,3 +139,12 @@ datasets" matches the 8 test rows; RSNA Spine and MRNet were used only for devel
 - Crop centred on the whole tumour (labels 1+2+4): expert-corrected mask, else automatic.
 - Label (ASSUMPTION): overall survival >= 1 year for the AUROC probes; time and event for the
   Cox probes (C-index, D30). The paper has no survival task.
+
+### `hecktor22_rfs_<pet|ct>` (not in the paper)
+- Data: HECKTOR 2022 challenge release (NIfTI), training and test cohorts pooled, 9 centres.
+  PET in SUV on its own grid, CT in HU; GTVp mask on the CT grid, resampled in physical
+  space like every other task (D31).
+- Crop centred on GTVp; cases without GTVp are excluded. Pad: PET 0 SUV, CT -1024 HU.
+- Label (ASSUMPTION): recurrence within 2 years; patients censored before 2 years are
+  dropped. Time and event (RFS) for the Cox probes (C-index, D30). Splits stratify on
+  centre x label. The paper has no survival task.

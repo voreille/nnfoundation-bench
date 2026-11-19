@@ -226,6 +226,7 @@ DESIGN_RUNS = {
     # the last row of the grid.
     "ref-age": "covariates_age_logreg",
     "ref-age+site": "covariates_age_group_logreg",
+    "ref-age+hpv": "covariates_age_hpv_logreg",
 }
 
 
@@ -309,6 +310,8 @@ COX_DESIGN_RUNS = {
     "F3": lambda m: f"{m}_frozen_roi_margin_mean_cox",
     "R1": "radiomics_original_cox",
     "ref-age": "covariates_age_cox",
+    "ref-age+hpv": "covariates_age_hpv_cox",
+    "ref-site": "covariates_group_cox",
 }
 
 
