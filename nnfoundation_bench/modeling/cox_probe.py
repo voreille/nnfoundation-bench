@@ -1,12 +1,12 @@
 """Cox survival probes on frozen features, radiomics or covariates; C-index per fold
-(``uv run nnfb-cox --help``, D30).
+(``uv run nnfb-cox --help``, D32).
 
 The survival counterpart of the logistic-regression probes in ``features.py``: same cached
 features, same splits (``splits.json``), same results layout
 (``outputs/results/<task>/<run>/fold<k>/``). The task's ``labels.csv`` must have ``time``
 and ``event`` columns. metrics.json holds ``cindex`` (Harrell) instead of ``auroc``.
-``combine`` blends an image Cox model with a covariate Cox model (D33);
-``within_group_cindex`` is the within-centre C-index (D32).
+``combine`` blends an image Cox model with a covariate Cox model (D36);
+``within_group_cindex`` is the within-centre C-index (D35).
 """
 
 import json
@@ -52,7 +52,7 @@ def cindex(time: np.ndarray, event: np.ndarray, risk: np.ndarray) -> float:
 def within_group_cindex(
     time: np.ndarray, event: np.ndarray, risk: np.ndarray, groups: np.ndarray
 ) -> float:
-    """Harrell's C over comparable pairs from the same group only, pooled over groups (D32).
+    """Harrell's C over comparable pairs from the same group only, pooled over groups (D35).
 
     The survival analogue of ``within_group_auroc`` (D24): a risk that depends on the group
     alone ties every pair and gets exactly 0.5. NaN if no group has a comparable pair.
@@ -200,7 +200,7 @@ def probe(
 
 def combine_cox_folds(task: str, run: str, x_image: np.ndarray, x_cov: np.ndarray) -> list[float]:
     """Per fold: an image Cox model and a covariate Cox model (``fit_cox``: train, alpha by
-    val), then ``blend`` of their risks with the image weight chosen by val C-index (D33)."""
+    val), then ``blend`` of their risks with the image weight chosen by val C-index (D36)."""
     from nnfoundation_bench.modeling.features import blend
 
     cases, _, splits = task_labels(task)
@@ -234,7 +234,7 @@ def combine(
         list[str] | None, typer.Option(help="labels.csv covariates (default: age)")
     ] = None,
 ) -> None:
-    """Image Cox + covariate Cox blended on val (D33). Run ``<image run>_plus_<columns>_cox``."""
+    """Image Cox + covariate Cox blended on val (D36). Run ``<image run>_plus_<columns>_cox``."""
     from nnfoundation_bench.modeling.features import (
         image_features,
         plus_run_name,

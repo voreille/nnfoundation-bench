@@ -4,8 +4,8 @@
 feature map in several ways, using the ROI mask exported by ``prepare``. ``probe`` fits
 an L2 logistic regression per fold on one pooling and writes results in the same format
 as fine-tuned runs, so ``nnfb-predict summarize`` lists both. ``fuse`` combines the
-features of several single-modality tasks of the same cases (late fusion, D14, D28).
-``combine`` blends an image probe with a covariate probe (e.g. age, centre; D33).
+features of several single-modality tasks of the same cases (late fusion, D14, D30).
+``combine`` blends an image probe with a covariate probe (e.g. age, centre; D36).
 
 The encoder is built with glovita's ``nnFoundationEncoder`` (same weights and
 architecture as fine-tuning). glovita's head sees the mean of this feature map
@@ -364,7 +364,7 @@ def fuse(
         list[str] | None, typer.Option(help=f"Fusion methods (default: {', '.join(FUSIONS)})")
     ] = None,
 ) -> None:
-    """Late fusion across modalities (D14, D28): M2 concatenation, M3 mean of the
+    """Late fusion across modalities (D14, D30): M2 concatenation, M3 mean of the
     embeddings (one encoder, one space), M4 score stacking. Results go to
     ``outputs/results/NAME/`` with ``fusion.json`` naming the source tasks."""
     check_same_cases(tasks)
@@ -392,7 +392,7 @@ def fuse(
                 raise typer.Exit(f"Unknown fusion method {m!r}: {FUSIONS}")
 
 
-# Image + covariates (D33): weight of the image score, tried on val.
+# Image + covariates (D36): weight of the image score, tried on val.
 BLEND_WEIGHTS = tuple(np.round(np.linspace(0, 1, 11), 2))
 
 
@@ -436,7 +436,7 @@ def task_covariates(task: str, cases: list[str], columns: list[str]) -> np.ndarr
 
 def combine_folds(task: str, run: str, x_image: np.ndarray, x_cov: np.ndarray) -> list[float]:
     """Per fold: an image probe and a covariate probe (``fit_probe``: train, C by val), then
-    ``blend`` of their logits with the image weight chosen by val AUROC (D33)."""
+    ``blend`` of their logits with the image weight chosen by val AUROC (D36)."""
     from scipy.special import expit, logit
     from sklearn.metrics import roc_auc_score
 
@@ -471,7 +471,7 @@ def combine(
         list[str] | None, typer.Option(help="labels.csv covariates (default: age)")
     ] = None,
 ) -> None:
-    """Image probe + covariate probe blended on val (D33). Run
+    """Image probe + covariate probe blended on val (D36). Run
     ``<image run>_plus_<columns>_logreg``; compare with the image run and
     ``covariates_<columns>_logreg`` (``<!-- generated: adjusted TASK -->``)."""
     cases, _, _ = task_labels(task)

@@ -84,7 +84,7 @@ def survival_labels(
 
     ``label`` = survived at least one year (``time >= 365`` days); ASSUMPTION, our binary
     view of the survival task so the AUROC probes apply. ``time`` (days) and ``event``
-    (1 = death) are kept for the Cox probes (C-index, D30). Every patient in the file died,
+    (1 = death) are kept for the Cox probes (C-index, D32). Every patient in the file died,
     so there is no censoring; patients alive at last follow-up are not in the file.
     ``age`` comes from the pre-operative clinical row. ``mask_source`` says which ROI mask
     the case uses. Single centre: no ``group``.

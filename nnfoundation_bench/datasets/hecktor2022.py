@@ -12,7 +12,7 @@ release (placed by hand, registration-gated):
 
 NIfTI already: CT in HU, PET in SUV on its own (coarser) grid, masks on the CT grid with
 1 = GTVp, 2 = GTVn. The endpoint files give ``Relapse`` (1 = recurrence) and ``RFS`` (days)
-for 488 + 339 patients. We pool the challenge's training and test sets (D31).
+for 488 + 339 patients. We pool the challenge's training and test sets (D34).
 """
 
 from pathlib import Path
@@ -107,7 +107,7 @@ def rfs_labels(
     ``RFS < horizon``, 0 if ``RFS >= horizon``. ASSUMPTION, our binary view so the AUROC
     probes apply; patients censored before the horizon without recurrence have no 2-year
     status and are dropped (also from the Cox probes, so both use one cohort). ``time``
-    (days) and ``event`` (1 = recurrence) feed the Cox probes (D30). ``age`` and ``hpv``
+    (days) and ``event`` (1 = recurrence) feed the Cox probes (D32). ``age`` and ``hpv``
     (NaN when unknown) are the clinical covariates. ``group`` = centre, ``stratum`` =
     centre x label; ``cohort`` = the challenge's train/test set (kept for reference only).
     """

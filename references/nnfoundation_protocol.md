@@ -127,7 +127,7 @@ datasets" matches the 8 test rows; RSNA Spine and MRNet were used only for devel
 
 ### `brats_gbm_<sequence>` (not in the paper)
 - Data: BraTS 2024 adult glioma, post-treatment (Synapse). Images are already 1 mm,
-  co-registered and skull-stripped (182 x 218 x 182). One task per sequence (D26).
+  co-registered and skull-stripped (182 x 218 x 182). One task per sequence (D28).
 - Crop centred on the whole tumour (seg labels 1+2+3); background 0 is the pad value.
 - Label (ASSUMPTION): glioblastoma vs astrocytoma or oligodendroglioma, from the metadata
   xlsx; Glioma NOS and Other excluded. Earliest scan per patient. Splits stratify on site x
@@ -135,16 +135,16 @@ datasets" matches the 8 test rows; RSNA Spine and MRNet were used only for devel
 
 ### `upenn_os_<sequence>` (not in the paper)
 - Data: UPENN-GBM (TCIA), pre-operative studies, BraTS 2021 layout (1 mm, skull-stripped).
-  One task per sequence (D29). Survival labels from a QuantImage2 export (452 deceased).
+  One task per sequence (D31). Survival labels from a QuantImage2 export (452 deceased).
 - Crop centred on the whole tumour (labels 1+2+4): expert-corrected mask, else automatic.
 - Label (ASSUMPTION): overall survival >= 1 year for the AUROC probes; time and event for the
-  Cox probes (C-index, D30). The paper has no survival task.
+  Cox probes (C-index, D32). The paper has no survival task.
 
 ### `hecktor22_rfs_<pet|ct>` (not in the paper)
 - Data: HECKTOR 2022 challenge release (NIfTI), training and test cohorts pooled, 9 centres.
   PET in SUV on its own grid, CT in HU; GTVp mask on the CT grid, resampled in physical
-  space like every other task (D31).
+  space like every other task (D34).
 - Crop centred on GTVp; cases without GTVp are excluded. Pad: PET 0 SUV, CT -1024 HU.
 - Label (ASSUMPTION): recurrence within 2 years; patients censored before 2 years are
-  dropped. Time and event (RFS) for the Cox probes (C-index, D30). Splits stratify on
+  dropped. Time and event (RFS) for the Cox probes (C-index, D32). Splits stratify on
   centre x label. The paper has no survival task.

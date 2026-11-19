@@ -177,7 +177,7 @@ def covariate_baseline(
 
     Same probe and splits as the frozen features (L2 logistic regression, C chosen on
     val). Run ``covariates_<columns>_logreg``; design rows ``ref-age`` and
-    ``ref-age+site`` (D27).
+    ``ref-age+site`` (D29).
     """
     from nnfoundation_bench.modeling.features import probe_folds, task_labels
 
@@ -217,12 +217,12 @@ DESIGN_RUNS = {
     # R2-R5 (filtered set, correlation filter, elastic net) were dropped (D25); their past
     # runs still show in the runs tables.
     "R1": "radiomics_original_logreg",
-    # Late fusion of per-modality ROI-mean embeddings (D14, D28), on a fused task
+    # Late fusion of per-modality ROI-mean embeddings (D14, D30), on a fused task
     # (``nnfb-features fuse``): concatenation, mean, score stacking on val.
     "M2": lambda m: f"{m}_fused_concat_roi_mean_logreg",
     "M3": lambda m: f"{m}_fused_mean_roi_mean_logreg",
     "M4": lambda m: f"{m}_fused_stack_roi_mean_logreg",
-    # Confounder references from labels.csv covariates (D27); ``ref`` (group alone) is
+    # Confounder references from labels.csv covariates (D29); ``ref`` (group alone) is
     # the last row of the grid.
     "ref-age": "covariates_age_logreg",
     "ref-age+site": "covariates_age_group_logreg",
@@ -303,7 +303,7 @@ def design_table(
     return "\n".join(lines)
 
 
-# C-index grid (``<!-- generated: cindex [patterns] -->``): Cox probes of nnfb-cox (D30).
+# C-index grid (``<!-- generated: cindex [patterns] -->``): Cox probes of nnfb-cox (D32).
 COX_DESIGN_RUNS = {
     "F1": lambda m: f"{m}_frozen_mean_cox",
     "F2": lambda m: f"{m}_frozen_roi_mean_cox",
@@ -319,7 +319,7 @@ def cindex_stats(task: str, within_group: bool = False) -> pd.DataFrame:
     """Test C-index ``mean``, ``std`` and fold ``count`` per Cox run of TASK (empty if none).
 
     ``within_group`` recomputes each fold's C-index from its ``predictions.csv`` over pairs
-    from the same group only (``within_group_cindex``, D32; tasks with a ``group`` column).
+    from the same group only (``within_group_cindex``, D35; tasks with a ``group`` column).
     """
     empty = pd.DataFrame(columns=["mean", "std", "count"])
     if not within_group:
@@ -354,7 +354,7 @@ def cindex_summary(task: str, within_group: bool = False) -> pd.Series:
 
 
 def adjusted_table(task: str) -> str:
-    """Image + covariate blends (D33) of TASK next to their parts: for every
+    """Image + covariate blends (D36) of TASK next to their parts: for every
     ``<image>_plus_<columns>`` run, the rows ``covariates_<columns>``, ``<image>`` and the
     blend, with AUROC and C-index (plus within-centre columns for tasks with groups)."""
     has_groups = task_groups(task) is not None
@@ -426,7 +426,7 @@ def runs_table(stats: pd.DataFrame, within: pd.DataFrame | None = None) -> str:
 #   <!-- generated: adjusted <task> -->              ...  <!-- end generated -->
 # design-within: within-centre AUROC, for the tasks that have a group column.
 # cindex: test C-index of the Cox probes (nnfb-cox), for tasks with survival labels.
-# cindex-within: within-centre C-index (D32). adjusted: image + covariate blends (D33).
+# cindex-within: within-centre C-index (D35). adjusted: image + covariate blends (D36).
 GENERATED_BLOCK = re.compile(
     r"(?P<open><!-- generated: (?P<spec>[^>]*?) -->\n).*?(?P<close><!-- end generated -->)",
     re.DOTALL,

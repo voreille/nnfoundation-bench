@@ -22,26 +22,26 @@ as input channels, ROI handling, and how to pool features within a ROI.
 | `lld_mmri_malignant_*` (8 phases) | 498 patients x 8 series on the NAS, all files present | all 8 prepared: 498 cases, 266 malignant, no failures, no missing ROI | frozen probes and radiomics done for all 8 |
 | `stoic_severe`, `stoic_covid` | 2000 scans | both prepared: 2000 cases, no failures; `stoic_covid` links the crops, features and radiomics of `stoic_severe` | frozen probes and radiomics done for both |
 | `rsna_spine_fracture` | 2019 studies unpacked on the NAS, checked (961 positive) | prepare on the host stopped at 1792 of 2019 (tmux session killed 2026-11-18 08:13); rerun resumes | none yet |
-| `upenn_os_*` (4 sequences) | 452 patients on the NAS (`UPENN_GBM`) + OS labels placed by hand (`GBM-UPENN-OS`), all 4 sequences, a mask for each (145 expert) | all 4 prepared on the host: 452 cases, 226 survived 1 year, no failures, no missing ROI; identical labels and splits (D29) | probes, radiomics, age reference, Cox / C-index (D30), fusion (`upenn_os_fused`) done |
-| `hecktor22_rfs_pet`, `hecktor22_rfs_ct` | HECKTOR 2022 challenge on the NAS (training + test with ground truth, `data/raw/HECKTOR2022/`), 827 patients with RFS, all CT, PET and masks present | labels checked on real data (714 labelled, 692 with GTVp); prepare both prepared on the host: 692 cases, 134 positive, 22 without GTVp excluded, no failures; identical labels and splits (D31) | probes, radiomics, age / age+HPV / centre references, Cox / C-index done |
-| `brats_gbm_*` (4 sequences) | 1809 scans on the NAS, 1621 with seg; metadata xlsx read | all 4 prepared on the host: 632 cases, 384 GBM, no failures, no missing ROI; identical labels and splits (D26) | probes, radiomics, site and age references, fusion (`brats_gbm_fused`) done |
+| `upenn_os_*` (4 sequences) | 452 patients on the NAS (`UPENN_GBM`) + OS labels placed by hand (`GBM-UPENN-OS`), all 4 sequences, a mask for each (145 expert) | all 4 prepared on the host: 452 cases, 226 survived 1 year, no failures, no missing ROI; identical labels and splits (D31) | probes, radiomics, age reference, Cox / C-index (D32), fusion (`upenn_os_fused`) done |
+| `hecktor22_rfs_pet`, `hecktor22_rfs_ct` | HECKTOR 2022 challenge on the NAS (training + test with ground truth, `data/raw/HECKTOR2022/`), 827 patients with RFS, all CT, PET and masks present | labels checked on real data (714 labelled, 692 with GTVp); prepare both prepared on the host: 692 cases, 134 positive, 22 without GTVp excluded, no failures; identical labels and splits (D34) | probes, radiomics, age / age+HPV / centre references, Cox / C-index done |
+| `brats_gbm_*` (4 sequences) | 1809 scans on the NAS, 1621 with seg; metadata xlsx read | all 4 prepared on the host: 632 cases, 384 GBM, no failures, no missing ROI; identical labels and splits (D28) | probes, radiomics, site and age references, fusion (`brats_gbm_fused`) done |
 
 Next steps:
 1. Frozen probes and radiomics are done on HECKTOR, both STOIC tasks and the 8 LLD-MMRI
    phases.
 2. BraTS: age references and fusion done. Next: a generated age-and-site stratified AUROC
-   (see Results) and age-adjusted probes (D27 open).
+   (see Results) and age-adjusted probes (D29 open).
 3. UPENN survival: probes, Cox and fusion done; age alone beats every imaging probe. Next:
    age + imaging probes (AUROC and Cox) to test whether imaging adds anything over age.
-4. HECKTOR 2022 RFS and UPENN: probes, Cox, within-centre C-index (D32), image +
-   covariate blends (D33, AUROC and C-index) and PET + CT fusion done.
+4. HECKTOR 2022 RFS and UPENN: probes, Cox, within-centre C-index (D35), image +
+   covariate blends (D36, AUROC and C-index) and PET + CT fusion done.
 5. RSNA: resume `prepare rsna_spine_fracture`, then `RADIOMICS="original"
    scripts/run_probes.sh rsna_spine_fracture`.
 6. Fine-tuning baseline with glovita: `FOLDS=0 scripts/run_benchmark.sh hecktor_hpv_pet_gtvp`
    (design T1).
 7. Input-size designs S2-S7: add `--fov` / `--mode` to `nnfb-features extract`, then run
    the FOV sweep.
-8. LLD-MMRI late fusion over the phases (M2-M4, D14, D15, D28): `nnfb-features fuse` is ready.
+8. LLD-MMRI late fusion over the phases (M2-M4, D14, D15, D30): `nnfb-features fuse` is ready.
 9. KiTS Liver full run (background, paper reproduction).
 10. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
    "pathology"). Each task needs about 12 GB in `data/processed`. See D12.
@@ -139,11 +139,11 @@ runs stay in the per-task runs tables).
 | I1 | Input | Other single modality: CT (HECKTOR), coronal or axial series (MRNet) |  | KiTS, STOIC n/a (CT only) | planned |
 | I3 | Input | ROI = GTVp ∪ GTVn |  | HECKTOR only | planned |
 | M1 | Modality fusion | Early fusion: modalities as channels on one grid, stem weights repeated / n (glovita). Not planned: we extract embeddings per modality (D14) |  | all | dropped |
-| M2 | Modality fusion (late) | Feature-level: per-modality embeddings concatenated, one probe (grid: ROI mean; D28) | `<m>_fused_concat_<pooling>_logreg` on a fused task | HECKTOR, MRNet, LLD-MMRI, BraTS | ready |
+| M2 | Modality fusion (late) | Feature-level: per-modality embeddings concatenated, one probe (grid: ROI mean; D30) | `<m>_fused_concat_<pooling>_logreg` on a fused task | HECKTOR, MRNet, LLD-MMRI, BraTS | ready |
 | M3 | Modality fusion (late) | Feature-level: mean of the per-modality embeddings (one encoder, so one space), one probe (grid: ROI mean) | `<m>_fused_mean_<pooling>_logreg` | HECKTOR, MRNet, LLD-MMRI, BraTS | ready |
 | M4 | Modality fusion (late) | Score-level: one probe per modality, scores combined by a logistic regression fitted on val (the MRNet paper's scheme; grid: ROI mean) | `<m>_fused_stack_<pooling>_logreg` | HECKTOR, MRNet, LLD-MMRI, BraTS | ready |
 | M5 | Modality fusion (late) | Learned attention across the per-modality embeddings or token maps (needs `--save-maps` and a small trained head) |  | HECKTOR, MRNet, LLD-MMRI | planned |
-| ref-age | Reference | Age alone, same probe and splits (D27) | `covariates_age_logreg` | tasks with an `age` column (BraTS) | ready |
+| ref-age | Reference | Age alone, same probe and splits (D29) | `covariates_age_logreg` | tasks with an `age` column (BraTS) | ready |
 | ref-age+site | Reference | Age and centre (one-hot), same probe | `covariates_age_group_logreg` | tasks with `age` and `group` | ready |
 | E1 | Evaluation | Leave-one-centre-out (removes the centre shortcut, D9) |  | HECKTOR only (other tasks: single centre or no centre released) | planned |
 
@@ -399,7 +399,7 @@ Grids above (`design brats_*`, `design-within brats_*`). 632 patients, 384 GBM; 
 - **ViT beats radiomics on every sequence** (R1 0.76-0.78 plain, 0.70-0.75 within). The CNN is
   below radiomics (0.66-0.74), as on the other tasks.
 
-Late fusion over the 4 sequences (D28), every pooling and method, on the fused task
+Late fusion over the 4 sequences (D30), every pooling and method, on the fused task
 `brats_gbm_fused` (AUROC, then within-centre AUROC):
 
 Age and fusion, 2026-11-18:
@@ -447,7 +447,7 @@ Age and fusion, 2026-11-18:
 ### upenn_os_*
 
 452 patients, 226 survived 1 year; 180 train, 46 val, 226 test per split. AUROC
-(1-year OS), then the C-index of the Cox probes (D30), then the fused runs:
+(1-year OS), then the C-index of the Cox probes (D32), then the fused runs:
 
 Results, 2026-11-19:
 - **Age alone beats every imaging probe:** 1-year AUROC 0.667, C-index 0.619. The best
@@ -461,7 +461,7 @@ Results, 2026-11-19:
 - **Fusion barely helps:** best is the concat of the four ROI + 10 mm means (0.663), M2
   (concat ROI means) 0.661 ± 0.003, both level with age; mean fusion (M3) loses, as on
   BraTS. Fused radiomics 0.600 (concat) / 0.617 (stack).
-- **Image + age (D33):** small AUROC gains over age alone (0.667): best ViT ROI mean + age
+- **Image + age (D36):** small AUROC gains over age alone (0.667): best ViT ROI mean + age
   0.688 (T2) and 0.689 (FLAIR), radiomics + age up to 0.689 (T2); several blends land at or
   below age alone. **No C-index gain:** age alone 0.619, best blend ViT T2 F3 + age 0.629
   (the image alone 0.623); most blends 0.58-0.62. The val weight of the images varies
@@ -498,7 +498,7 @@ Results, 2026-11-19:
 | ref-site | - | - | - | - |
 <!-- end generated -->
 
-Image + age (D33), one table per sequence:
+Image + age (D36), one table per sequence:
 
 <!-- generated: adjusted upenn_os_t1 -->
 | Run | AUROC | C-index |
@@ -608,7 +608,7 @@ Image + age (D33), one table per sequence:
 ### hecktor22_rfs_*
 
 692 patients (GTVp present), 134 recurrences within 2 years, 169 events overall;
-9 centres. AUROC (2-year recurrence), within-centre AUROC, then the C-index (D30, D31):
+9 centres. AUROC (2-year recurrence), within-centre AUROC, then the C-index (D32, D34):
 
 Results, 2026-11-19:
 - **Centre is the strongest single predictor:** centre alone 0.649 AUROC (`ref`) and 0.613
@@ -616,7 +616,7 @@ Results, 2026-11-19:
   and follow-up differ by centre (USZ 37/82 positive, MDA 53/365).
 - **The ViT keeps some signal within centres:** within-centre AUROC 0.59-0.62 (best PET F1
   0.616, CT F2 0.590), where centre is 0.5 by construction. C-index up to 0.637 (PET F3)
-  and 0.634 (CT F2), a little above centre alone; within-centre C-index (D32) up to 0.603
+  and 0.634 (CT F2), a little above centre alone; within-centre C-index (D35) up to 0.603
   (PET F1) and 0.594 (CT F2), centre alone 0.5.
 - **PET and CT are close.** PET is better on the whole crop (F1), CT catches up with ROI
   pooling (F2 0.651 vs F1 0.614). Radiomics 0.60-0.61 AUROC, ~0.60 C-index, weaker within
@@ -625,13 +625,13 @@ Results, 2026-11-19:
 - **Age carries nothing** (0.49 AUROC, 0.51 C-index). Age + HPV only 0.518 / 0.536: HPV is
   unknown for a third of patients (median-imputed) and nearly all-positive at MDA, so it
   adds little in this cohort.
-- **Image + centre (D33):** blending the image probe with the centre lifts AUROC above
+- **Image + centre (D36):** blending the image probe with the centre lifts AUROC above
   centre alone (0.644 logistic, 0.649 `group_prior`): ViT PET F3 + centre 0.683, CT F2 +
   centre 0.674, radiomics + centre 0.668-0.678. Same for the C-index (centre alone 0.613):
   ViT PET F3 + centre 0.657, CT F2 + centre 0.650, radiomics + centre 0.631-0.643, each
   also above the image alone (0.637, 0.634). The CNN adds little (AUROC 0.63-0.65, C-index
   0.58-0.63). Adding age and HPV to the centre changes little (AUROC 0.650, C-index 0.614).
-- **PET + CT fusion (D28):** score stacking of the two ViT ROI-mean probes (M4) 0.669, concat
+- **PET + CT fusion (D30):** score stacking of the two ViT ROI-mean probes (M4) 0.669, concat
   (M2) 0.657, mean (M3) 0.652; within-centre 0.58-0.60, no better than the best single
   modality. Fusion helps less than adding the centre.
 
@@ -683,7 +683,7 @@ Results, 2026-11-19:
 | ref-site | 0.500 ± 0.000 | 0.500 ± 0.000 |
 <!-- end generated -->
 
-Image + covariates (D33), PET then CT:
+Image + covariates (D36), PET then CT:
 
 <!-- generated: adjusted hecktor22_rfs_pet -->
 | Run | AUROC | Within-centre AUROC | C-index | Within-centre C-index |
@@ -741,7 +741,7 @@ Image + covariates (D33), PET then CT:
 | `vit_frozen_roi_mean_plus_group` | 0.674 ± 0.011 | 0.590 ± 0.028 | 0.650 ± 0.004 | 0.594 ± 0.034 |
 <!-- end generated -->
 
-PET + CT fusion (D28), every run:
+PET + CT fusion (D30), every run:
 
 <!-- generated: runs hecktor22_rfs_fused -->
 | Run | Design | AUROC | Within-centre AUROC |
@@ -881,7 +881,7 @@ None yet.
 - Dropped the filtered radiomics set and the R2-R5 rows (D25): `run_probes.sh` now runs
   `original` with the plain L2 probe only (R1). Removed from the backlog with it: the
   filter ablation item. Cached filtered features and past runs are kept.
-- BraTS 2024 post-treatment glioma added (D26), on branch `brats-glioma-type`: four tasks
+- BraTS 2024 post-treatment glioma added (D28), on branch `brats-glioma-type`: four tasks
   `brats_gbm_<t1c|t1n|t2f|t2w>`, GBM vs astrocytoma/oligodendroglioma, earliest scan per
   patient, whole tumour (1+2+3) as ROI, site as `group`. 632 patients (384 GBM). Smoke test
   on 6 cases x 2 sequences: ROI fully inside every crop, ~2 s per case. `openpyxl` added to
@@ -893,16 +893,16 @@ None yet.
 - This server's `outputs/results/` holds only the BraTS runs (the other tasks ran in another
   workspace), so only the `brats_*` blocks were regenerated here. A full
   `table --update` needs all results in one `outputs/`.
-- BraTS: added the age references (D27, `nnfb-predict covariate-baseline`; `brats.py` now
-  writes `age`) and late fusion M2-M4 (D28, `nnfb-features fuse`, results under a fused task
+- BraTS: added the age references (D29, `nnfb-predict covariate-baseline`; `brats.py` now
+  writes `age`) and late fusion M2-M4 (D30, `nnfb-features fuse`, results under a fused task
   name such as `brats_gbm_fused`). Unit-tested on synthetic data; real runs pending on the host.
 - BraTS on the host: labels.csv rewritten with `age` (splits unchanged, same hash), age
   references and fusion (CNN, ViT, radiomics) run. Age alone 0.772, age + site 0.814; best
   ViT fused 0.885 (concat, whole crop), 0.844 within-centre (concat, ROI mean). Within the
   same site and age decade the ROI-pooled ViT keeps ~0.82, the whole-crop ViT drops to ~0.78.
-- UPENN-GBM survival added (D29): four tasks `upenn_os_<seq>`, 452 deceased patients (no
+- UPENN-GBM survival added (D31): four tasks `upenn_os_<seq>`, 452 deceased patients (no
   censoring), label = 1-year OS (226/226), `time`/`event`/`age` in labels.csv, ROI = expert
-  mask (145) else automatic (307). Cox probes with C-index (D30, `nnfb-cox`,
+  mask (145) else automatic (307). Cox probes with C-index (D32, `nnfb-cox`,
   scikit-survival); `run_probes.sh` runs them for tasks with `time`/`event`. Prepare
   smoke-tested on 4 cases (2 expert, 2 automatic masks): ROI fully inside, ~3 s per case.
 
@@ -912,7 +912,7 @@ None yet.
   C-index; best ViT T2 F3 0.655 / 0.623; CNN near chance; fused concat (M2) 0.661.
 - `nnfb-cox` CLI fixed: a single-command typer app made `probe` an extra argument, so the
   first `run_probes.sh` pass skipped every Cox probe. A CLI test now covers it.
-- HECKTOR 2022 recurrence-free survival added (D31): `hecktor22_rfs_<pet|ct>` on the
+- HECKTOR 2022 recurrence-free survival added (D34): `hecktor22_rfs_<pet|ct>` on the
   challenge release Valentin linked (training + test pooled, 9 centres). Label = recurrence
   within 2 years; 113 patients censored earlier dropped; 714 labelled, 692 with GTVp
   (134 positive, 169 events). New references age + HPV (AUROC and Cox) and centre (Cox).
@@ -922,11 +922,11 @@ None yet.
   failures, identical splits), probes, radiomics, references and Cox run. Centre alone 0.649
   AUROC / 0.613 C-index, level with the best ViT (0.658 PET F3); ViT within-centre AUROC up
   to 0.616; age and age + HPV near chance.
-- Within-centre C-index (D32, `cindex-within` blocks) and image + covariate blends (D33,
+- Within-centre C-index (D35, `cindex-within` blocks) and image + covariate blends (D36,
   `nnfb-features combine` / `nnfb-cox combine`, `adjusted <task>` blocks). AUROC blends run
   here (seconds each): HECKTOR 2022 image + centre up to 0.683 vs centre alone 0.649; UPENN
   image + age up to 0.689 vs age alone 0.667. Cox blends left for the host (~10 min per
   ViT pooling).
-- Cox blends (D33) on the host: HECKTOR 2022 image + centre C-index up to 0.657 (ViT PET
+- Cox blends (D36) on the host: HECKTOR 2022 image + centre C-index up to 0.657 (ViT PET
   F3) vs centre alone 0.613 and image alone 0.637; UPENN image + age at most 0.629 vs age
   alone 0.619 (no real gain).

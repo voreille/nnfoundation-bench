@@ -56,7 +56,7 @@ for features in $RADIOMICS; do
 done
 
 # Confounder references from labels.csv columns: group (e.g. centre) alone, age alone, and
-# age with group, age with HPV status (D9, D27, D31).
+# age with group, age with HPV status (D9, D29, D34).
 has_column() {
   head -1 "${NNFB_DATA_DIR:-data}/processed/$TASK/labels.csv" | tr , '\n' | grep -qx "$1"
 }
@@ -73,7 +73,7 @@ if has_column age; then
   fi
 fi
 
-# Survival tasks (labels.csv with time and event): Cox probes, C-index (D30)
+# Survival tasks (labels.csv with time and event): Cox probes, C-index (D32)
 if has_column time && has_column event; then
   echo "== Cox probes (C-index)"
   for model in $MODELS; do
