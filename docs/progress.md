@@ -23,7 +23,7 @@ as input channels, ROI handling, and how to pool features within a ROI.
 | `stoic_severe`, `stoic_covid` | 2000 scans | both prepared: 2000 cases, no failures; `stoic_covid` links the crops, features and radiomics of `stoic_severe` | frozen probes and radiomics done for both |
 | `rsna_spine_fracture` | 2019 studies unpacked on the NAS, checked (961 positive) | prepare on the host stopped at 1792 of 2019 (tmux session killed 2026-11-18 08:13); rerun resumes | none yet |
 | `upenn_os_*` (4 sequences) | 452 patients on the NAS (`UPENN_GBM`) + OS labels placed by hand (`GBM-UPENN-OS`), all 4 sequences, a mask for each (145 expert) | all 4 prepared on the host: 452 cases, 226 survived 1 year, no failures, no missing ROI; identical labels and splits (D29) | probes, radiomics, age reference, Cox / C-index (D30), fusion (`upenn_os_fused`) done |
-| `hecktor22_rfs_pet`, `hecktor22_rfs_ct` | HECKTOR 2022 challenge on the NAS (training + test with ground truth, `data/raw/HECKTOR2022/`), 827 patients with RFS, all CT, PET and masks present | labels checked on real data (714 labelled, 692 with GTVp); prepare smoke-tested on 4 cases x PET/CT (D31) | none yet |
+| `hecktor22_rfs_pet`, `hecktor22_rfs_ct` | HECKTOR 2022 challenge on the NAS (training + test with ground truth, `data/raw/HECKTOR2022/`), 827 patients with RFS, all CT, PET and masks present | labels checked on real data (714 labelled, 692 with GTVp); prepare both prepared on the host: 692 cases, 134 positive, 22 without GTVp excluded, no failures; identical labels and splits (D31) | probes, radiomics, age / age+HPV / centre references, Cox / C-index done |
 | `brats_gbm_*` (4 sequences) | 1809 scans on the NAS, 1621 with seg; metadata xlsx read | all 4 prepared on the host: 632 cases, 384 GBM, no failures, no missing ROI; identical labels and splits (D26) | probes, radiomics, site and age references, fusion (`brats_gbm_fused`) done |
 
 Next steps:
@@ -33,9 +33,9 @@ Next steps:
    (see Results) and age-adjusted probes (D27 open).
 3. UPENN survival: probes, Cox and fusion done; age alone beats every imaging probe. Next:
    age + imaging probes (AUROC and Cox) to test whether imaging adds anything over age.
-4. HECKTOR 2022 RFS: `prepare hecktor22_rfs_<pet|ct>` on the host, then
-   `scripts/run_probes.sh` (AUROC, within-centre AUROC, age / age+HPV / centre references,
-   Cox / C-index, D31).
+4. HECKTOR 2022 RFS: probes and Cox done. Next: PET + CT fusion (`nnfb-features fuse
+   hecktor22_rfs_pet hecktor22_rfs_ct --name hecktor22_rfs_fused`), a Cox probe on fused
+   features, and within-centre C-index (centre is a strong confounder here).
 5. RSNA: resume `prepare rsna_spine_fracture`, then `RADIOMICS="original"
    scripts/run_probes.sh rsna_spine_fracture`.
 6. Fine-tuning baseline with glovita: `FOLDS=0 scripts/run_benchmark.sh hecktor_hpv_pet_gtvp`
@@ -518,19 +518,70 @@ Results, 2026-11-19:
 
 ### hecktor22_rfs_*
 
-None yet. 692 patients (GTVp present), 134 recurrences within 2 years, 169 events overall;
+692 patients (GTVp present), 134 recurrences within 2 years, 169 events overall;
 9 centres. AUROC (2-year recurrence), within-centre AUROC, then the C-index (D30, D31):
 
+Results, 2026-11-19:
+- **Centre is the strongest single predictor:** centre alone 0.649 AUROC (`ref`) and 0.613
+  C-index (`ref-site`), level with the best ViT probes (0.651-0.658 AUROC). Recurrence rates
+  and follow-up differ by centre (USZ 37/82 positive, MDA 53/365).
+- **The ViT keeps some signal within centres:** within-centre AUROC 0.59-0.62 (best PET F1
+  0.616, CT F2 0.590), where centre is 0.5 by construction. C-index up to 0.637 (PET F3) and 0.634 (CT F2), a little
+  above centre alone (no within-centre C-index yet).
+- **PET and CT are close.** PET is better on the whole crop (F1), CT catches up with ROI
+  pooling (F2 0.651 vs F1 0.614). Radiomics 0.60-0.61 AUROC, ~0.60 C-index, weaker within
+  centres (0.55-0.56).
+- **The CNN is near chance** (0.51-0.57), as on UPENN.
+- **Age carries nothing** (0.49 AUROC, 0.51 C-index). Age + HPV only 0.518 / 0.536: HPV is
+  unknown for a third of patients (median-imputed) and nearly all-positive at MDA, so it
+  adds little in this cohort.
+
 <!-- generated: design hecktor22_* -->
-No results yet.
+| ID | hecktor22_rfs_ct | hecktor22_rfs_pet |
+|----|---|---|
+| F1 | 0.533 ± 0.039 / 0.614 ± 0.012 | 0.548 ± 0.029 / 0.656 ± 0.040 |
+| F2 | 0.508 ± 0.025 / 0.651 ± 0.015 | 0.568 ± 0.053 / 0.647 ± 0.016 |
+| F3 | 0.523 ± 0.022 / 0.636 ± 0.022 | 0.550 ± 0.039 / 0.658 ± 0.040 |
+| T1 | - / - | - / - |
+| T1-last | - / - | - / - |
+| R1 | 0.602 ± 0.061 | 0.611 ± 0.025 |
+| M2 | - / - | - / - |
+| M3 | - / - | - / - |
+| M4 | - / - | - / - |
+| ref-age | 0.490 ± 0.014 | 0.490 ± 0.014 |
+| ref-age+site | 0.640 ± 0.009 | 0.640 ± 0.009 |
+| ref-age+hpv | 0.518 ± 0.006 | 0.518 ± 0.006 |
+| ref | 0.649 ± 0.003 | 0.649 ± 0.003 |
 <!-- end generated -->
 
 <!-- generated: design-within hecktor22_* -->
-No results yet.
+| ID | hecktor22_rfs_ct | hecktor22_rfs_pet |
+|----|---|---|
+| F1 | 0.508 ± 0.054 / 0.526 ± 0.044 | 0.529 ± 0.053 / 0.616 ± 0.040 |
+| F2 | 0.493 ± 0.051 / 0.590 ± 0.028 | 0.531 ± 0.051 / 0.587 ± 0.029 |
+| F3 | 0.504 ± 0.052 / 0.580 ± 0.037 | 0.513 ± 0.033 / 0.595 ± 0.038 |
+| T1 | - / - | - / - |
+| T1-last | - / - | - / - |
+| R1 | 0.558 ± 0.041 | 0.553 ± 0.024 |
+| M2 | - / - | - / - |
+| M3 | - / - | - / - |
+| M4 | - / - | - / - |
+| ref-age | 0.488 ± 0.035 | 0.488 ± 0.035 |
+| ref-age+site | 0.488 ± 0.035 | 0.488 ± 0.035 |
+| ref-age+hpv | 0.499 ± 0.031 | 0.499 ± 0.031 |
+| ref | 0.500 ± 0.000 | 0.500 ± 0.000 |
 <!-- end generated -->
 
 <!-- generated: cindex hecktor22_* -->
-No results yet.
+| ID | hecktor22_rfs_ct | hecktor22_rfs_pet |
+|----|---|---|
+| F1 | 0.533 ± 0.015 / 0.589 ± 0.013 | 0.540 ± 0.020 / 0.633 ± 0.038 |
+| F2 | 0.523 ± 0.028 / 0.634 ± 0.014 | 0.575 ± 0.033 / 0.622 ± 0.032 |
+| F3 | 0.513 ± 0.035 / 0.623 ± 0.010 | 0.559 ± 0.032 / 0.637 ± 0.024 |
+| R1 | 0.606 ± 0.019 | 0.596 ± 0.019 |
+| ref-age | 0.508 ± 0.004 | 0.508 ± 0.004 |
+| ref-age+hpv | 0.536 ± 0.014 | 0.536 ± 0.014 |
+| ref-site | 0.613 ± 0.012 | 0.613 ± 0.012 |
 <!-- end generated -->
 
 ### kits_liver
@@ -671,3 +722,7 @@ None yet.
   (134 positive, 169 events). New references age + HPV (AUROC and Cox) and centre (Cox).
   Prepare smoke-tested on 4 cases x 2 modalities: GTVp fully inside the crop, ~7-20 s per
   case; the case without GTVp is flagged for exclusion.
+- HECKTOR 2022 on the host: both tasks prepared (692 cases, 22 without GTVp excluded, no
+  failures, identical splits), probes, radiomics, references and Cox run. Centre alone 0.649
+  AUROC / 0.613 C-index, level with the best ViT (0.658 PET F3); ViT within-centre AUROC up
+  to 0.616; age and age + HPV near chance.
