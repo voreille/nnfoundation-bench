@@ -413,6 +413,69 @@ Supersedes the R2-R5 rows of D21 and D22; R1 (107 original-image features, L2 pr
 - **Rejected:** keeping the filtered set for the remaining tasks (RSNA, KiTS) "for
   completeness": hours of extraction for a baseline that has not helped anywhere.
 
+## D26. HECKTOR 2022 recurrence-free survival: train + test pooled, crop on GTVp ∪ GTVn (active, 2026-11-18)
+- **Choice:**
+  - Pool the HECKTOR 2022 training and test sets (the test ground truth is now public):
+    827 patients with an RFS endpoint, 174 relapses, 9 centres. Usual 5 x 40/10/50 splits,
+    stratified on centre x event. The official split is also written
+    (`splits_official.json`: train with 20% held out as val, test = the challenge test set)
+    for a later train -> test view.
+  - One single-channel task per modality, `hecktor2022_rfs_ct` and `hecktor2022_rfs_pet`
+    (late fusion, D14). 192³ at 1 mm centred on the bounding box of GTVp ∪ GTVn; the mask
+    is shared, so PET and CT crops land on the same grid.
+  - The exported mask keeps 1 = GTVp, 2 = GTVn (`keep_roi_labels`), so poolings over
+    GTVp, GTVn, their union or the concatenation of per-ROI means can be compared.
+  - CT clamped below at -1024 HU (padding down to -16989, as in D19); PET padded with 0.
+  - Target: RFS time (days) and relapse event, challenge Task 2. `label` = event, used for
+    stratification only. Evaluation: Cox probe and C-index (next decision).
+- **Why:**
+  - Survival power depends on events: the test set alone has 78 relapses (about 31 to fit
+    and 39 to test per split); pooled, 174.
+  - Every case has a GTVp or a GTVn, and the union fits in 192 mm (largest 179 mm), so one
+    protocol crop holds all lesions.
+  - Relapse rates differ by centre (CHB 5%, USZ 37%, others 12-34%): stratification and a
+    within-centre C-index are needed, as for HPV (D9, D24).
+- **Rejected:**
+  - Test set only: too few events.
+  - Official split only: one test set, no variance across splits; kept as a second view.
+  - Whole scans at 1 mm: only the planned FOV / tiling designs would use them.
+  - Binarised relapse at a fixed horizon with AUROC: drops patients censored early and the
+    timing. Would be needed only to fine-tune with glovita.
+- **Open:**
+  - About 100 training patients are probably also in the HECKTOR HPV task (curated from
+    HECKTOR 2022). Harmless as long as the two tasks are never trained together.
+  - 20 CHB and 36 training patients have masks but no endpoint and are left out.
+
+## D27. Survival probe: ridge Cox and C-index; per-ROI poolings for several ROIs (active, 2026-11-18)
+- **Choice:**
+  - A task is a survival task when its `labels.csv` has `time` and `event`. Its probes
+    (frozen features and radiomics) are ridge Cox models (scikit-survival
+    `CoxPHSurvivalAnalysis`), with median imputation and standardisation as for the
+    logistic probe, fit on train, penalty alpha in 10^-1..10^5 chosen by val C-index.
+    Runs end in `_cox`.
+  - Metric: Harrell's C-index (`cindex` in metrics.json, the challenge metric), and a
+    within-centre C-index (comparable pairs from the same centre only, pooled), the
+    survival version of D24. `group_prior`: risk = the centre's events per day of
+    follow-up in train+val.
+  - For tasks whose mask keeps several named ROIs (D26), frozen features are also pooled
+    over each ROI (F5 GTVp, F6 GTVn; NaN when absent) and as the concatenation of the
+    per-ROI means (F7). F2 / F3 are the union. Radiomics (R1) uses the union.
+- **Why:**
+  - Cox is the standard linear survival model and keeps censored patients and timing; a
+    ridge penalty because features outnumber events (174 events, 320-1056 dimensions).
+  - Union vs per-ROI vs concatenation is the pooling question for multi-ROI tasks: one mean
+    over both lesions weighs them by volume; concatenation keeps them apart at twice the
+    dimension.
+- **Rejected:**
+  - Elastic-net Cox (Coxnet): L1 on top did not help on radiomics (D22, D25); can be added.
+  - Uno's C-index or time-dependent AUC: Harrell's is the challenge metric; censoring
+    differs by centre, so Uno's could be added later.
+  - Own Cox / C-index code: scikit-survival 0.28 installs with sklearn 1.9 / NumPy 2.5.
+- **Open:**
+  - Missing ROI (18% no GTVn, 6% no GTVp) imputed with the train median in F5-F7; an
+    indicator feature could carry "no nodes", which is prognostic.
+  - Per-ROI radiomics (GTVp, GTVn, concatenated) not done yet.
+
 ## D28. BraTS 2024 post-treatment glioma: GBM vs astrocytoma/oligodendroglioma, one task per sequence (active, 2026-11-18)
 - **Fact:** the BraTS 2024 adult glioma release (Synapse, registration-gated, placed by hand
   on the NAS, `data/raw/BraTS_Glioma_synapse/`) has 1809 post-treatment scans of 818
@@ -539,6 +602,29 @@ Implements M2-M4 of D14.
   `cox_probe.py` / `nnfb-cox` here to avoid a merge clash). Fine-tuning for survival is not
   covered (glovita trains classifiers only).
 
+## D33. Survival-only tasks vs tasks with a binary label plus time/event (active, 2026-11-19)
+Merges D27 (Valentin: survival probes in `nnfb-features probe`) with D31/D32 (ours: UPENN
+1-year label, `nnfb-cox`).
+- **Choice:**
+  - A task is *survival-only* when `labels.csv` has `time` and `event` **and** `label`
+    equals `event` (HECKTOR 2022 RFS, D26). D27 applies: `nnfb-features probe`,
+    `nnfb-radiomics probe`, `covariate-baseline` and `group-baseline` fit Cox models, runs
+    end in `_cox`, the design grids show the C-index (`survival.is_survival`).
+  - A task with `time`/`event` **and** a binary label of its own (UPENN, label = survived 1
+    year, D31) stays a classification task: logistic probes, AUROC grids. Its Cox models
+    come from `nnfb-cox` (D32) and show in `<!-- generated: cindex -->` grids.
+  - `nnfb-cox` refuses survival-only tasks (their Cox runs already exist under the same
+    names); `run_probes.sh` calls it only for the second kind.
+- **Why:** both designs are wanted: the C-index alone for HECKTOR RFS, AUROC on a clinical
+  horizon plus the C-index for UPENN. A rule on the data keeps every task as it is.
+- **Rejected:** a flag on the task definition (fused tasks have no definition of their
+  own; the labels.csv rule works for them through `processed_task`); merging `cox_probe.py`
+  into `survival.py` now (same model and C-index; left for a follow-up to keep the merge
+  small).
+- **Open:** two Cox implementations (`survival.fit_cox_probe`, `cox_probe.fit_cox`) with
+  the same pipeline and alphas; fold them into one. Fused survival-only tasks get `_logreg`
+  run names from `nnfb-features fuse` although their probe is Cox.
+
 ## D34. HECKTOR 2022 recurrence-free survival: 2-year label plus time/event, PET and CT (active, 2026-11-19)
 - **Fact:** the HECKTOR 2022 challenge release (NAS, linked as `data/raw/HECKTOR2022/`, the
   three folders Valentin set up) has NIfTI CT (HU), PET (SUV, own grid) and masks on the CT
@@ -548,6 +634,8 @@ Implements M2-M4 of D14.
   Censored data: 169 recurrences among the 795 endpoint patients with a GTVp. 34 patients
   have no GTVp in their mask. Overall survival is not in the release (only MDA has it, in
   the TCIA clinical file), so RFS is the survival endpoint here (user's choice).
+  Valentin's `hecktor2022_rfs_<ct|pet>` (D26) covers the same release as a survival-only
+  task; this one is a variant next to it (`datasets/hecktor2022_rfs2y.py`).
 - **Choice:**
   - Two tasks `hecktor22_rfs_<pet|ct>`, crop centred on GTVp (as `hecktor_hpv_pet_gtvp`),
     identical labels and splits (late fusion applies, D30). The challenge's training and
@@ -574,7 +662,8 @@ Implements M2-M4 of D14.
 
 ## D35. Within-centre C-index (active, 2026-11-19)
 - **Choice:** Harrell's C over comparable pairs from the same `group` only, pooled over
-  groups (`cox_probe.within_group_cindex`), recomputed from each Cox run's predictions.csv.
+  groups (`cox_probe.within_group_cindex`, a wrapper of D27's `survival.within_group_cindex`),
+  recomputed from each `nnfb-cox` run's predictions.csv.
   Generated grid `<!-- generated: cindex-within [patterns] -->`, for tasks with a `group`.
 - **Why:** the survival analogue of the within-centre AUROC (D24). On HECKTOR 2022 the centre
   alone reaches a C-index of 0.613 (D34); a risk that depends on the centre alone ties every

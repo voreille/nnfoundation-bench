@@ -64,6 +64,7 @@ images are about 100 GB.
 | `upenn_os_<t1\|t1gd\|t2\|flair>` | UPENN-GBM (TCIA), pre-operative brain MR, one sequence per task; OS labels placed by hand | 452 (226 survived 1 year; all deceased) | whole tumour (expert mask, else automatic) | 1-year overall survival (AUROC) + time/event for the Cox C-index | probes, Cox, fusion done |
 | `hecktor22_rfs_<pet\|ct>` | HECKTOR 2022 challenge (training + test pooled, 9 centres), PET SUV or CT HU | 692 (134 recur within 2 years; 113 censored before 2 years dropped) | GTVp (challenge mask) | recurrence within 2 years (AUROC) + time/event for the Cox C-index | code + smoke test on 4 cases x 2 modalities |
 | `brats_gbm_<t1c\|t1n\|t2f\|t2w>` | BraTS 2024 post-treatment glioma (Synapse, 5 sites), brain MR, one sequence per task | 632 patients (384 +), earliest scan each | whole tumour (dataset seg, labels 1+2+3) | glioblastoma vs astrocytoma/oligodendroglioma (our assumption) | code + smoke test on 6 cases x 2 sequences |
+| `hecktor2022_rfs_<ct\|pet>` | HECKTOR 2022 training + test (NIfTI), CT or PET (SUV), one task per modality | 827 with RFS (174 relapses), 9 centres | GTVp ∪ GTVn (dataset masks; mask keeps 1 = GTVp, 2 = GTVn) | recurrence-free survival (time, event) | code + smoke test on 5 cases |
 
 Progress and results: [docs/progress.md](docs/progress.md). Design decisions:
 [docs/decisions.md](docs/decisions.md). See [references/nnfoundation_protocol.md](references/nnfoundation_protocol.md) for

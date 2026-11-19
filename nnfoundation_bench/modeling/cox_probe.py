@@ -52,28 +52,12 @@ def cindex(time: np.ndarray, event: np.ndarray, risk: np.ndarray) -> float:
 def within_group_cindex(
     time: np.ndarray, event: np.ndarray, risk: np.ndarray, groups: np.ndarray
 ) -> float:
-    """Harrell's C over comparable pairs from the same group only, pooled over groups (D35).
+    """Harrell's C over comparable pairs from the same group only, pooled over groups (D35):
+    ``survival.within_group_cindex`` (D27) with this module's (time, event, risk) order. A
+    risk that depends on the group alone gets exactly 0.5."""
+    from nnfoundation_bench.modeling.survival import within_group_cindex as pooled
 
-    The survival analogue of ``within_group_auroc`` (D24): a risk that depends on the group
-    alone ties every pair and gets exactly 0.5. NaN if no group has a comparable pair.
-    """
-    from sksurv.exceptions import NoComparablePairException
-    from sksurv.metrics import concordance_index_censored
-
-    concordant, pairs = 0.0, 0
-    for group in np.unique(groups):
-        g = groups == group
-        if g.sum() < 2 or not event[g].any():
-            continue
-        try:
-            _, conc, disc, tied_risk, _ = concordance_index_censored(
-                event[g].astype(bool), time[g], risk[g]
-            )
-        except NoComparablePairException:
-            continue
-        concordant += conc + 0.5 * tied_risk
-        pairs += conc + disc + tied_risk
-    return concordant / pairs if pairs else float("nan")
+    return pooled(np.asarray(event), np.asarray(time), np.asarray(risk), np.asarray(groups))
 
 
 def fit_cox(
@@ -174,6 +158,10 @@ def probe(
     ] = None,
 ) -> None:
     """Cox probe per fold, C-index on test; results like the AUROC probes, run ``*_cox``."""
+    from nnfoundation_bench.modeling.survival import is_survival
+
+    if is_survival(task):  # its own probes are Cox already, under the same run names
+        raise typer.Exit(f"{task} is a survival-only task: use nnfb-features probe (D27, D33)")
     cases, _, _ = task_labels(task)
     if model in MODELS:
         for pool in pooling or POOLINGS:
