@@ -1,5 +1,5 @@
 """Cox survival probes on frozen features, radiomics or covariates; C-index per fold
-(``uv run nnfb-cox --help``, D30).
+(``uv run nnfb-cox --help``, D32).
 
 The survival counterpart of the logistic-regression probes in ``features.py``: same cached
 features, same splits (``splits.json``), same results layout

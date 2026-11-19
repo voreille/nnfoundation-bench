@@ -121,7 +121,7 @@ def glioma_labels(metadata: pd.DataFrame, cases: list[str]) -> pd.DataFrame:
             "case_id": chosen,
             "label": types.map(GLIOMA_LABELS).to_numpy(),
             "group": meta.loc[chosen, "Site"].to_numpy(),
-            # Age at the chosen scan (NaN if unknown), for the age-only reference (D27).
+            # Age at the chosen scan (NaN if unknown), for the age-only reference (D29).
             "age": pd.to_numeric(meta.loc[chosen, "Patient's Age"]).to_numpy(),
         }
     )

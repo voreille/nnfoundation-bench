@@ -413,7 +413,7 @@ Supersedes the R2-R5 rows of D21 and D22; R1 (107 original-image features, L2 pr
 - **Rejected:** keeping the filtered set for the remaining tasks (RSNA, KiTS) "for
   completeness": hours of extraction for a baseline that has not helped anywhere.
 
-## D26. BraTS 2024 post-treatment glioma: GBM vs astrocytoma/oligodendroglioma, one task per sequence (active, 2026-11-18)
+## D28. BraTS 2024 post-treatment glioma: GBM vs astrocytoma/oligodendroglioma, one task per sequence (active, 2026-11-18)
 - **Fact:** the BraTS 2024 adult glioma release (Synapse, registration-gated, placed by hand
   on the NAS, `data/raw/BraTS_Glioma_synapse/`) has 1809 post-treatment scans of 818
   patients from 5 sites (UCSF, UCSD, Duke, Missouri, Indiana). Each scan has t1c, t1n, t2f
@@ -453,7 +453,7 @@ Supersedes the R2-R5 rows of D21 and D22; R1 (107 original-image features, L2 pr
   site confound dominates as on HECKTOR: read plain and within-centre AUROC together.
 
 
-## D27. Covariate references: age alone, and age with centre (active, 2026-11-18)
+## D29. Covariate references: age alone, and age with centre (active, 2026-11-18)
 Extends D9 (centre-only reference).
 - **Choice:** `nnfb-predict covariate-baseline <task> --column age [--column group]` fits the
   frozen-feature probe (D13: L2 logistic regression, balanced classes, C on val, same splits)
@@ -471,7 +471,7 @@ Extends D9 (centre-only reference).
 - **Open:** subtracting age from the features (or adding it to the probe) to measure
   imaging signal beyond age.
 
-## D28. Late fusion across modalities: concatenation, mean, score stacking (active, 2026-11-18)
+## D30. Late fusion across modalities: concatenation, mean, score stacking (active, 2026-11-18)
 Implements M2-M4 of D14.
 - **Choice:** `nnfb-features fuse <task>... --name <fused> --model cnn|vit|radiomics` reads the
   cached pooled features of single-modality tasks with identical `labels.json` and
@@ -494,7 +494,7 @@ Implements M2-M4 of D14.
 - **Open:** M4's stacker is fitted on val only (64 cases on BraTS, 50 on LLD-MMRI); on small
   tasks (HECKTOR, 10 val cases) it will be noisy. M5 (learned attention) still planned.
 
-## D29. UPENN-GBM overall survival: 1-year label plus time/event, one task per sequence (active, 2026-11-18)
+## D31. UPENN-GBM overall survival: 1-year label plus time/event, one task per sequence (active, 2026-11-18)
 - **Fact:** UPENN-GBM (TCIA NIfTI release on the NAS, `data/raw/UPENN_GBM/`) has pre-operative
   studies `UPENN-GBM-<n>_11` with T1, T1GD, T2 and FLAIR in the BraTS 2021 layout (240 x 240 x
   155 at 1 mm, skull-stripped), expert-corrected tumour masks for some studies and automatic
@@ -505,10 +505,10 @@ Implements M2-M4 of D14.
   no censoring. Median survival 366 days.
 - **Choice:**
   - Four tasks `upenn_os_<t1|t1gd|t2|flair>`, single-channel, identical labels and splits
-    (late fusion applies, D28). All 452 patients of the outcome file, pre-operative study.
+    (late fusion applies, D30). All 452 patients of the outcome file, pre-operative study.
   - `label` = survived at least 365 days (226 / 226). ASSUMPTION, our binary view, so prepare,
     the AUROC probes, radiomics and the tables work unchanged. `labels.csv` also keeps `time`,
-    `event` and `age` for the Cox probes (D30) and the age reference (D27).
+    `event` and `age` for the Cox probes (D32) and the age reference (D29).
   - ROI = whole tumour (1+2+4): the expert-corrected mask where it exists (145 patients),
     otherwise the automatic one (307). `mask_source` is recorded per case. Dice 0.94 between
     the two on a checked case.
@@ -520,7 +520,7 @@ Implements M2-M4 of D14.
 - **Open:** without censoring the cohort leaves out patients still alive, so long survivors
   are under-represented. The user mentioned 416 studies; the file has 452 (all used).
 
-## D30. Cox probes with Harrell's C-index (active, 2026-11-18)
+## D32. Cox probes with Harrell's C-index (active, 2026-11-18)
 - **Choice:** `nnfb-cox probe <task> --model cnn|vit|radiomics|covariates` fits, per fold, a
   ridge Cox model (scikit-survival `CoxPHSurvivalAnalysis`) on the same cached features and
   splits as the AUROC probes: median imputation, standardisation on train, ridge alpha from

@@ -177,7 +177,7 @@ def covariate_baseline(
 
     Same probe and splits as the frozen features (L2 logistic regression, C chosen on
     val). Run ``covariates_<columns>_logreg``; design rows ``ref-age`` and
-    ``ref-age+site`` (D27).
+    ``ref-age+site`` (D29).
     """
     from nnfoundation_bench.modeling.features import probe_folds, task_labels
 
@@ -217,12 +217,12 @@ DESIGN_RUNS = {
     # R2-R5 (filtered set, correlation filter, elastic net) were dropped (D25); their past
     # runs still show in the runs tables.
     "R1": "radiomics_original_logreg",
-    # Late fusion of per-modality ROI-mean embeddings (D14, D28), on a fused task
+    # Late fusion of per-modality ROI-mean embeddings (D14, D30), on a fused task
     # (``nnfb-features fuse``): concatenation, mean, score stacking on val.
     "M2": lambda m: f"{m}_fused_concat_roi_mean_logreg",
     "M3": lambda m: f"{m}_fused_mean_roi_mean_logreg",
     "M4": lambda m: f"{m}_fused_stack_roi_mean_logreg",
-    # Confounder references from labels.csv covariates (D27); ``ref`` (group alone) is
+    # Confounder references from labels.csv covariates (D29); ``ref`` (group alone) is
     # the last row of the grid.
     "ref-age": "covariates_age_logreg",
     "ref-age+site": "covariates_age_group_logreg",
@@ -302,7 +302,7 @@ def design_table(
     return "\n".join(lines)
 
 
-# C-index grid (``<!-- generated: cindex [patterns] -->``): Cox probes of nnfb-cox (D30).
+# C-index grid (``<!-- generated: cindex [patterns] -->``): Cox probes of nnfb-cox (D32).
 COX_DESIGN_RUNS = {
     "F1": lambda m: f"{m}_frozen_mean_cox",
     "F2": lambda m: f"{m}_frozen_roi_mean_cox",

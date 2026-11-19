@@ -22,14 +22,14 @@ as input channels, ROI handling, and how to pool features within a ROI.
 | `lld_mmri_malignant_*` (8 phases) | 498 patients x 8 series on the NAS, all files present | all 8 prepared: 498 cases, 266 malignant, no failures, no missing ROI | frozen probes and radiomics done for all 8 |
 | `stoic_severe`, `stoic_covid` | 2000 scans | both prepared: 2000 cases, no failures; `stoic_covid` links the crops, features and radiomics of `stoic_severe` | frozen probes and radiomics done for both |
 | `rsna_spine_fracture` | 2019 studies unpacked on the NAS, checked (961 positive) | prepare on the host stopped at 1792 of 2019 (tmux session killed 2026-11-18 08:13); rerun resumes | none yet |
-| `upenn_os_*` (4 sequences) | 452 patients on the NAS (`UPENN_GBM`) + OS labels placed by hand (`GBM-UPENN-OS`), all 4 sequences, a mask for each (145 expert) | all 4 prepared on the host: 452 cases, 226 survived 1 year, no failures, no missing ROI; identical labels and splits (D29) | probes, radiomics, age reference, Cox / C-index (D30), fusion (`upenn_os_fused`) done |
-| `brats_gbm_*` (4 sequences) | 1809 scans on the NAS, 1621 with seg; metadata xlsx read | all 4 prepared on the host: 632 cases, 384 GBM, no failures, no missing ROI; identical labels and splits (D26) | probes, radiomics, site and age references, fusion (`brats_gbm_fused`) done |
+| `upenn_os_*` (4 sequences) | 452 patients on the NAS (`UPENN_GBM`) + OS labels placed by hand (`GBM-UPENN-OS`), all 4 sequences, a mask for each (145 expert) | all 4 prepared on the host: 452 cases, 226 survived 1 year, no failures, no missing ROI; identical labels and splits (D31) | probes, radiomics, age reference, Cox / C-index (D32), fusion (`upenn_os_fused`) done |
+| `brats_gbm_*` (4 sequences) | 1809 scans on the NAS, 1621 with seg; metadata xlsx read | all 4 prepared on the host: 632 cases, 384 GBM, no failures, no missing ROI; identical labels and splits (D28) | probes, radiomics, site and age references, fusion (`brats_gbm_fused`) done |
 
 Next steps:
 1. Frozen probes and radiomics are done on HECKTOR, both STOIC tasks and the 8 LLD-MMRI
    phases.
 2. BraTS: age references and fusion done. Next: a generated age-and-site stratified AUROC
-   (see Results) and age-adjusted probes (D27 open).
+   (see Results) and age-adjusted probes (D29 open).
 3. UPENN survival: probes, Cox and fusion done; age alone beats every imaging probe. Next:
    age + imaging probes (AUROC and Cox) to test whether imaging adds anything over age.
 4. RSNA: resume `prepare rsna_spine_fracture`, then `RADIOMICS="original"
@@ -38,7 +38,7 @@ Next steps:
    (design T1).
 6. Input-size designs S2-S7: add `--fov` / `--mode` to `nnfb-features extract`, then run
    the FOV sweep.
-7. LLD-MMRI late fusion over the phases (M2-M4, D14, D15, D28): `nnfb-features fuse` is ready.
+7. LLD-MMRI late fusion over the phases (M2-M4, D14, D15, D30): `nnfb-features fuse` is ready.
 8. KiTS Liver full run (background, paper reproduction).
 9. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
    "pathology"). Each task needs about 12 GB in `data/processed`. See D12.
@@ -136,11 +136,11 @@ runs stay in the per-task runs tables).
 | I1 | Input | Other single modality: CT (HECKTOR), coronal or axial series (MRNet) |  | KiTS, STOIC n/a (CT only) | planned |
 | I3 | Input | ROI = GTVp ∪ GTVn |  | HECKTOR only | planned |
 | M1 | Modality fusion | Early fusion: modalities as channels on one grid, stem weights repeated / n (glovita). Not planned: we extract embeddings per modality (D14) |  | all | dropped |
-| M2 | Modality fusion (late) | Feature-level: per-modality embeddings concatenated, one probe (grid: ROI mean; D28) | `<m>_fused_concat_<pooling>_logreg` on a fused task | HECKTOR, MRNet, LLD-MMRI, BraTS | ready |
+| M2 | Modality fusion (late) | Feature-level: per-modality embeddings concatenated, one probe (grid: ROI mean; D30) | `<m>_fused_concat_<pooling>_logreg` on a fused task | HECKTOR, MRNet, LLD-MMRI, BraTS | ready |
 | M3 | Modality fusion (late) | Feature-level: mean of the per-modality embeddings (one encoder, so one space), one probe (grid: ROI mean) | `<m>_fused_mean_<pooling>_logreg` | HECKTOR, MRNet, LLD-MMRI, BraTS | ready |
 | M4 | Modality fusion (late) | Score-level: one probe per modality, scores combined by a logistic regression fitted on val (the MRNet paper's scheme; grid: ROI mean) | `<m>_fused_stack_<pooling>_logreg` | HECKTOR, MRNet, LLD-MMRI, BraTS | ready |
 | M5 | Modality fusion (late) | Learned attention across the per-modality embeddings or token maps (needs `--save-maps` and a small trained head) |  | HECKTOR, MRNet, LLD-MMRI | planned |
-| ref-age | Reference | Age alone, same probe and splits (D27) | `covariates_age_logreg` | tasks with an `age` column (BraTS) | ready |
+| ref-age | Reference | Age alone, same probe and splits (D29) | `covariates_age_logreg` | tasks with an `age` column (BraTS) | ready |
 | ref-age+site | Reference | Age and centre (one-hot), same probe | `covariates_age_group_logreg` | tasks with `age` and `group` | ready |
 | E1 | Evaluation | Leave-one-centre-out (removes the centre shortcut, D9) |  | HECKTOR only (other tasks: single centre or no centre released) | planned |
 
@@ -396,7 +396,7 @@ Grids above (`design brats_*`, `design-within brats_*`). 632 patients, 384 GBM; 
 - **ViT beats radiomics on every sequence** (R1 0.76-0.78 plain, 0.70-0.75 within). The CNN is
   below radiomics (0.66-0.74), as on the other tasks.
 
-Late fusion over the 4 sequences (D28), every pooling and method, on the fused task
+Late fusion over the 4 sequences (D30), every pooling and method, on the fused task
 `brats_gbm_fused` (AUROC, then within-centre AUROC):
 
 Age and fusion, 2026-11-18:
@@ -444,7 +444,7 @@ Age and fusion, 2026-11-18:
 ### upenn_os_*
 
 452 patients, 226 survived 1 year; 180 train, 46 val, 226 test per split. AUROC
-(1-year OS), then the C-index of the Cox probes (D30), then the fused runs:
+(1-year OS), then the C-index of the Cox probes (D32), then the fused runs:
 
 Results, 2026-11-19:
 - **Age alone beats every imaging probe:** 1-year AUROC 0.667, C-index 0.619. The best
@@ -613,7 +613,7 @@ None yet.
 - Dropped the filtered radiomics set and the R2-R5 rows (D25): `run_probes.sh` now runs
   `original` with the plain L2 probe only (R1). Removed from the backlog with it: the
   filter ablation item. Cached filtered features and past runs are kept.
-- BraTS 2024 post-treatment glioma added (D26), on branch `brats-glioma-type`: four tasks
+- BraTS 2024 post-treatment glioma added (D28), on branch `brats-glioma-type`: four tasks
   `brats_gbm_<t1c|t1n|t2f|t2w>`, GBM vs astrocytoma/oligodendroglioma, earliest scan per
   patient, whole tumour (1+2+3) as ROI, site as `group`. 632 patients (384 GBM). Smoke test
   on 6 cases x 2 sequences: ROI fully inside every crop, ~2 s per case. `openpyxl` added to
@@ -625,16 +625,16 @@ None yet.
 - This server's `outputs/results/` holds only the BraTS runs (the other tasks ran in another
   workspace), so only the `brats_*` blocks were regenerated here. A full
   `table --update` needs all results in one `outputs/`.
-- BraTS: added the age references (D27, `nnfb-predict covariate-baseline`; `brats.py` now
-  writes `age`) and late fusion M2-M4 (D28, `nnfb-features fuse`, results under a fused task
+- BraTS: added the age references (D29, `nnfb-predict covariate-baseline`; `brats.py` now
+  writes `age`) and late fusion M2-M4 (D30, `nnfb-features fuse`, results under a fused task
   name such as `brats_gbm_fused`). Unit-tested on synthetic data; real runs pending on the host.
 - BraTS on the host: labels.csv rewritten with `age` (splits unchanged, same hash), age
   references and fusion (CNN, ViT, radiomics) run. Age alone 0.772, age + site 0.814; best
   ViT fused 0.885 (concat, whole crop), 0.844 within-centre (concat, ROI mean). Within the
   same site and age decade the ROI-pooled ViT keeps ~0.82, the whole-crop ViT drops to ~0.78.
-- UPENN-GBM survival added (D29): four tasks `upenn_os_<seq>`, 452 deceased patients (no
+- UPENN-GBM survival added (D31): four tasks `upenn_os_<seq>`, 452 deceased patients (no
   censoring), label = 1-year OS (226/226), `time`/`event`/`age` in labels.csv, ROI = expert
-  mask (145) else automatic (307). Cox probes with C-index (D30, `nnfb-cox`,
+  mask (145) else automatic (307). Cox probes with C-index (D32, `nnfb-cox`,
   scikit-survival); `run_probes.sh` runs them for tasks with `time`/`event`. Prepare
   smoke-tested on 4 cases (2 expert, 2 automatic masks): ROI fully inside, ~3 s per case.
 

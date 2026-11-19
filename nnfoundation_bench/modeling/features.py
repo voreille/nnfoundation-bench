@@ -4,7 +4,7 @@
 feature map in several ways, using the ROI mask exported by ``prepare``. ``probe`` fits
 an L2 logistic regression per fold on one pooling and writes results in the same format
 as fine-tuned runs, so ``nnfb-predict summarize`` lists both. ``fuse`` combines the
-features of several single-modality tasks of the same cases (late fusion, D14, D28).
+features of several single-modality tasks of the same cases (late fusion, D14, D30).
 
 The encoder is built with glovita's ``nnFoundationEncoder`` (same weights and
 architecture as fine-tuning). glovita's head sees the mean of this feature map
@@ -363,7 +363,7 @@ def fuse(
         list[str] | None, typer.Option(help=f"Fusion methods (default: {', '.join(FUSIONS)})")
     ] = None,
 ) -> None:
-    """Late fusion across modalities (D14, D28): M2 concatenation, M3 mean of the
+    """Late fusion across modalities (D14, D30): M2 concatenation, M3 mean of the
     embeddings (one encoder, one space), M4 score stacking. Results go to
     ``outputs/results/NAME/`` with ``fusion.json`` naming the source tasks."""
     check_same_cases(tasks)
