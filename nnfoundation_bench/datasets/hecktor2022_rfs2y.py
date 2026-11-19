@@ -1,4 +1,4 @@
-"""HECKTOR 2022 head-and-neck PET/CT with recurrence-free survival (challenge task 2).
+"""HECKTOR 2022 PET/CT, recurrence within 2 years plus time/event (variant of D26, D34).
 
 Raw data: ``data/raw/HECKTOR2022/`` holds three symlinks to the NAS copy of the challenge
 release (placed by hand, registration-gated):
@@ -13,6 +13,10 @@ release (placed by hand, registration-gated):
 NIfTI already: CT in HU, PET in SUV on its own (coarser) grid, masks on the CT grid with
 1 = GTVp, 2 = GTVn. The endpoint files give ``Relapse`` (1 = recurrence) and ``RFS`` (days)
 for 488 + 339 patients. We pool the challenge's training and test sets (D34).
+
+Variant of ``hecktor2022.py`` (D26, survival-only, all 827 patients, crop on GTVp + GTVn):
+here the crop is centred on GTVp alone, ``label`` is recurrence within 2 years (AUROC) and
+``labels.csv`` also has ``age`` and ``hpv`` for the clinical references and blends (D36).
 """
 
 from pathlib import Path

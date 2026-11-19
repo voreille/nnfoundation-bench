@@ -1,7 +1,7 @@
 import pandas as pd
 
 from nnfoundation_bench.datasets import get_task
-from nnfoundation_bench.datasets.hecktor2022 import (
+from nnfoundation_bench.datasets.hecktor2022_rfs2y import (
     GTVP,
     HPV_COLUMN,
     MODALITIES,
