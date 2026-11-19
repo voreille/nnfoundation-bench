@@ -12,7 +12,7 @@ as input channels, ROI handling, and how to pool features within a ROI.
 
 **Target: HECKTOR HPV classification at AUROC ≥ 0.99.**
 
-## Current status (2026-11-18)
+## Current status (2026-11-19)
 
 | Task | Data | Pipeline | Results |
 |------|------|----------|---------|
@@ -22,7 +22,7 @@ as input channels, ROI handling, and how to pool features within a ROI.
 | `lld_mmri_malignant_*` (8 phases) | 498 patients x 8 series on the NAS, all files present | all 8 prepared: 498 cases, 266 malignant, no failures, no missing ROI | frozen probes and radiomics done for all 8 |
 | `stoic_severe`, `stoic_covid` | 2000 scans | both prepared: 2000 cases, no failures; `stoic_covid` links the crops, features and radiomics of `stoic_severe` | frozen probes and radiomics done for both |
 | `rsna_spine_fracture` | 2019 studies unpacked on the NAS, checked (961 positive) | prepare on the host stopped at 1792 of 2019 (tmux session killed 2026-11-18 08:13); rerun resumes | none yet |
-| `upenn_os_*` (4 sequences) | 452 patients on the NAS (`UPENN_GBM`) + OS labels placed by hand (`GBM-UPENN-OS`), all 4 sequences, a mask for each (145 expert) | prepare smoke-tested on 4 cases; full prepare to run on the host (D29) | none yet |
+| `upenn_os_*` (4 sequences) | 452 patients on the NAS (`UPENN_GBM`) + OS labels placed by hand (`GBM-UPENN-OS`), all 4 sequences, a mask for each (145 expert) | all 4 prepared on the host: 452 cases, 226 survived 1 year, no failures, no missing ROI; identical labels and splits (D29) | probes, radiomics, age reference, Cox / C-index (D30), fusion (`upenn_os_fused`) done |
 | `brats_gbm_*` (4 sequences) | 1809 scans on the NAS, 1621 with seg; metadata xlsx read | all 4 prepared on the host: 632 cases, 384 GBM, no failures, no missing ROI; identical labels and splits (D26) | probes, radiomics, site and age references, fusion (`brats_gbm_fused`) done |
 
 Next steps:
@@ -30,8 +30,8 @@ Next steps:
    phases.
 2. BraTS: age references and fusion done. Next: a generated age-and-site stratified AUROC
    (see Results) and age-adjusted probes (D27 open).
-3. UPENN survival: `prepare upenn_os_<t1|t1gd|t2|flair>` on the host, then
-   `scripts/run_probes.sh upenn_os_<seq>` (AUROC probes, age reference and Cox / C-index, D29, D30).
+3. UPENN survival: probes, Cox and fusion done; age alone beats every imaging probe. Next:
+   age + imaging probes (AUROC and Cox) to test whether imaging adds anything over age.
 4. RSNA: resume `prepare rsna_spine_fracture`, then `RADIOMICS="original"
    scripts/run_probes.sh rsna_spine_fracture`.
 5. Fine-tuning baseline with glovita: `FOLDS=0 scripts/run_benchmark.sh hecktor_hpv_pet_gtvp`
@@ -443,13 +443,73 @@ Age and fusion, 2026-11-18:
 
 ### upenn_os_*
 
-None yet. 452 patients, 226 survived 1 year; 180 train, 46 val, 226 test per split. AUROC
-(1-year OS), then the C-index of the Cox probes (D30):
+452 patients, 226 survived 1 year; 180 train, 46 val, 226 test per split. AUROC
+(1-year OS), then the C-index of the Cox probes (D30), then the fused runs:
+
+Results, 2026-11-19:
+- **Age alone beats every imaging probe:** 1-year AUROC 0.667, C-index 0.619. The best
+  single-sequence ViT is T2 F3 (ROI + 10 mm) at 0.655 AUROC and 0.623 C-index; most ViT runs
+  sit at 0.58-0.64 AUROC and 0.58-0.61 C-index. Survival from pre-operative imaging alone is
+  weak, in line with the literature (~0.6-0.65).
+- **The CNN is near chance** (AUROC 0.50-0.55, C-index 0.52-0.55). The ViT is consistently
+  above it. Radiomics sits between them, best on T2 (0.623 AUROC, 0.567 C-index).
+- **T2 is the most informative sequence** for the ViT and radiomics. ROI pooling helps a
+  little on T2 and T1 (F3 > F1), not on T1GD.
+- **Fusion barely helps:** best is the concat of the four ROI + 10 mm means (0.663), M2
+  (concat ROI means) 0.661 ± 0.003, both level with age; mean fusion (M3) loses, as on
+  BraTS. Fused radiomics 0.600 (concat) / 0.617 (stack).
+- Open question: does imaging add anything over age? Needs age + imaging probes.
 
 <!-- generated: design upenn_* -->
+| ID | upenn_os_flair | upenn_os_fused | upenn_os_t1 | upenn_os_t1gd | upenn_os_t2 |
+|----|---|---|---|---|---|
+| F1 | 0.502 ± 0.038 / 0.619 ± 0.039 | - / - | 0.531 ± 0.026 / 0.630 ± 0.044 | 0.513 ± 0.034 / 0.603 ± 0.032 | 0.547 ± 0.037 / 0.607 ± 0.036 |
+| F2 | 0.501 ± 0.039 / 0.622 ± 0.013 | - / - | 0.532 ± 0.019 / 0.627 ± 0.026 | 0.514 ± 0.032 / 0.581 ± 0.033 | 0.542 ± 0.015 / 0.638 ± 0.037 |
+| F3 | 0.509 ± 0.012 / 0.610 ± 0.023 | - / - | 0.516 ± 0.021 / 0.643 ± 0.022 | 0.515 ± 0.034 / 0.587 ± 0.023 | 0.542 ± 0.010 / 0.655 ± 0.027 |
+| T1 | - / - | - / - | - / - | - / - | - / - |
+| T1-last | - / - | - / - | - / - | - / - | - / - |
+| R1 | 0.569 ± 0.015 | - | 0.536 ± 0.052 | 0.538 ± 0.026 | 0.623 ± 0.030 |
+| M2 | - / - | 0.516 ± 0.017 / 0.661 ± 0.003 | - / - | - / - | - / - |
+| M3 | - / - | 0.505 ± 0.040 / 0.599 ± 0.027 | - / - | - / - | - / - |
+| M4 | - / - | 0.528 ± 0.011 / 0.629 ± 0.052 | - / - | - / - | - / - |
+| ref-age | 0.667 ± 0.031 | - | 0.667 ± 0.031 | 0.667 ± 0.031 | 0.667 ± 0.031 |
+| ref-age+site | - | - | - | - | - |
+| ref | n/a | n/a | n/a | n/a | n/a |
 <!-- end generated -->
 
 <!-- generated: cindex upenn_* -->
+| ID | upenn_os_flair | upenn_os_t1 | upenn_os_t1gd | upenn_os_t2 |
+|----|---|---|---|---|
+| F1 | 0.523 ± 0.009 / 0.588 ± 0.024 | 0.520 ± 0.025 / 0.589 ± 0.024 | 0.524 ± 0.012 / 0.580 ± 0.017 | 0.554 ± 0.020 / 0.595 ± 0.030 |
+| F2 | 0.521 ± 0.015 / 0.588 ± 0.010 | 0.549 ± 0.025 / 0.598 ± 0.018 | 0.526 ± 0.005 / 0.587 ± 0.014 | 0.542 ± 0.008 / 0.605 ± 0.029 |
+| F3 | 0.524 ± 0.010 / 0.599 ± 0.008 | 0.550 ± 0.019 / 0.595 ± 0.022 | 0.519 ± 0.007 / 0.580 ± 0.018 | 0.536 ± 0.009 / 0.623 ± 0.011 |
+| R1 | 0.544 ± 0.021 | 0.519 ± 0.027 | 0.527 ± 0.021 | 0.567 ± 0.013 |
+| ref-age | 0.619 ± 0.019 | 0.619 ± 0.019 | 0.619 ± 0.019 | 0.619 ± 0.019 |
+<!-- end generated -->
+
+<!-- generated: runs upenn_os_fused -->
+| Run | Design | AUROC |
+|---|---|---|
+| `vit_fused_concat_roi_margin_mean_logreg` |  | 0.663 ± 0.024 |
+| `vit_fused_concat_roi_mean_logreg` | M2 | 0.661 ± 0.003 |
+| `vit_fused_stack_roi_margin_mean_logreg` |  | 0.654 ± 0.042 |
+| `vit_fused_concat_mean_logreg` |  | 0.639 ± 0.043 |
+| `vit_fused_mean_mean_logreg` |  | 0.634 ± 0.034 |
+| `vit_fused_stack_roi_mean_logreg` | M4 | 0.629 ± 0.052 |
+| `vit_fused_stack_mean_logreg` |  | 0.628 ± 0.038 |
+| `vit_fused_mean_roi_margin_mean_logreg` |  | 0.620 ± 0.016 |
+| `radiomics_original_fused_stack_logreg` |  | 0.617 ± 0.039 |
+| `radiomics_original_fused_concat_logreg` |  | 0.600 ± 0.031 |
+| `vit_fused_mean_roi_mean_logreg` | M3 | 0.599 ± 0.027 |
+| `cnn_fused_concat_mean_logreg` |  | 0.536 ± 0.019 |
+| `cnn_fused_mean_mean_logreg` |  | 0.535 ± 0.019 |
+| `cnn_fused_stack_roi_margin_mean_logreg` |  | 0.530 ± 0.014 |
+| `cnn_fused_stack_roi_mean_logreg` | M4 | 0.528 ± 0.011 |
+| `cnn_fused_stack_mean_logreg` |  | 0.520 ± 0.034 |
+| `cnn_fused_concat_roi_mean_logreg` | M2 | 0.516 ± 0.017 |
+| `cnn_fused_mean_roi_margin_mean_logreg` |  | 0.507 ± 0.035 |
+| `cnn_fused_concat_roi_margin_mean_logreg` |  | 0.506 ± 0.026 |
+| `cnn_fused_mean_roi_mean_logreg` | M3 | 0.505 ± 0.040 |
 <!-- end generated -->
 
 ### kits_liver
@@ -577,3 +637,10 @@ None yet.
   mask (145) else automatic (307). Cox probes with C-index (D30, `nnfb-cox`,
   scikit-survival); `run_probes.sh` runs them for tasks with `time`/`event`. Prepare
   smoke-tested on 4 cases (2 expert, 2 automatic masks): ROI fully inside, ~3 s per case.
+
+### 2026-11-19
+- UPENN on the host: all 4 sequences prepared (452 cases, no failures, identical splits),
+  probes, radiomics, age reference, Cox probes and fusion run. Age alone 0.667 AUROC / 0.619
+  C-index; best ViT T2 F3 0.655 / 0.623; CNN near chance; fused concat (M2) 0.661.
+- `nnfb-cox` CLI fixed: a single-command typer app made `probe` an extra argument, so the
+  first `run_probes.sh` pass skipped every Cox probe. A CLI test now covers it.
