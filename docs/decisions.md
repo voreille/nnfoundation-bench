@@ -625,3 +625,72 @@ Merges D27 (Valentin: survival probes in `nnfb-features probe`) with D31/D32 (ou
   the same pipeline and alphas; fold them into one. Fused survival-only tasks get `_logreg`
   run names from `nnfb-features fuse` although their probe is Cox.
 
+## D34. HECKTOR 2022 recurrence-free survival: 2-year label plus time/event, PET and CT (active, 2026-11-19)
+- **Fact:** the HECKTOR 2022 challenge release (NAS, linked as `data/raw/HECKTOR2022/`, the
+  three folders Valentin set up) has NIfTI CT (HU), PET (SUV, own grid) and masks on the CT
+  grid (1 GTVp, 2 GTVn) for 524 training (7 centres) + 359 test patients (CHB, MDA, USZ), the
+  clinical tables for both (age, sex, HPV, tobacco, alcohol, surgery, chemo) and the
+  recurrence-free survival endpoint (`Relapse`, `RFS` in days) for 488 + 339 of them.
+  Censored data: 169 recurrences among the 795 endpoint patients with a GTVp. 34 patients
+  have no GTVp in their mask. Overall survival is not in the release (only MDA has it, in
+  the TCIA clinical file), so RFS is the survival endpoint here (user's choice).
+  Valentin's `hecktor2022_rfs_<ct|pet>` (D26) covers the same release as a survival-only
+  task; this one is a variant next to it (`datasets/hecktor2022_rfs2y.py`).
+- **Choice:**
+  - Two tasks `hecktor22_rfs_<pet|ct>`, crop centred on GTVp (as `hecktor_hpv_pet_gtvp`),
+    identical labels and splits (late fusion applies, D30). The challenge's training and
+    test cohorts are pooled; our own 5 x 40/10/50 splits stratify on centre x label.
+  - `label` = recurrence within 2 years (`Relapse` and `RFS < 730`); 0 = recurrence-free at
+    2 years (`RFS >= 730`). ASSUMPTION. Patients censored before 2 years without recurrence
+    (113) have no 2-year status and are dropped from the task, the Cox probes included, so
+    AUROC and C-index use one cohort. 2 years holds ~85% of recurrences (median 337 days).
+  - Cases without GTVp are excluded by `prepare` (`require_roi`). Expected: 692 patients,
+    134 recurrences within 2 years, 169 events.
+  - `labels.csv` keeps `time`, `event`, `age`, `hpv` (NaN when unknown, 482 of 714 known),
+    `group` (centre) and `cohort` (challenge train/test). New references: age + HPV
+    (`ref-age+hpv`, AUROC and Cox: HPV status is the main known prognostic factor in
+    oropharyngeal cancer) and centre alone in the Cox grid (`ref-site`, one-hot `group`).
+- **Why:** the largest survival cohort with expert ROI masks we have, multi-centre and with
+  censoring (unlike UPENN, D31); PET is the modality of our current HECKTOR task.
+- **Rejected:** 1-year label (only 88 positives); 3-year label (218 patients lost);
+  `Relapse` at any time as the label (depends on follow-up length, which differs by
+  centre); keeping the challenge's train/test split (one split only, unseen test centres).
+- **Open:** Harrell's C is used as in the challenge, but with censoring it depends on the
+  follow-up distribution (Uno's C would correct it). Follow-up differs by centre (median RFS
+  MDA ~6 years, CHB ~2 years): read the within-centre AUROC next to plain AUROC. GTVn and
+  PET + CT fusion are left for later.
+
+## D35. Within-centre C-index (active, 2026-11-19)
+- **Choice:** Harrell's C over comparable pairs from the same `group` only, pooled over
+  groups (`cox_probe.within_group_cindex`, a wrapper of D27's `survival.within_group_cindex`),
+  recomputed from each `nnfb-cox` run's predictions.csv.
+  Generated grid `<!-- generated: cindex-within [patterns] -->`, for tasks with a `group`.
+- **Why:** the survival analogue of the within-centre AUROC (D24). On HECKTOR 2022 the centre
+  alone reaches a C-index of 0.613 (D34); a risk that depends on the centre alone ties every
+  within-centre pair and gets exactly 0.5, so the metric shows what the images add.
+- **Rejected:** a Cox model stratified by centre (changes the model, not the metric; the
+  within-centre metric applies unchanged to every existing run); averaging per-centre
+  C-indices (small centres such as CHB, with 2 events, would weigh as much as MDA).
+
+## D36. Image + covariates: two probes blended on val (active, 2026-11-19)
+- **Choice:** `nnfb-features combine` / `nnfb-cox combine <task> --model ... --column ...`
+  fit, per fold, the image probe and a covariate probe separately (train, hyperparameter by
+  val, as before), standardise their scores (logits / Cox risks) with val statistics and sum
+  them with an image weight `w` in 0, 0.1, ..., 1 chosen by val AUROC / C-index (`w` = 0 is
+  the covariates alone, 1 the image alone; recorded as `blend_weight_image`). Runs
+  `<image run>_plus_<columns>_<logreg|cox>`. Generated table `<!-- generated: adjusted
+  <task> -->` lists each blend next to its two parts, with AUROC, C-index and (tasks with
+  centres) their within-centre versions.
+- **Why:** the question is whether the images add anything over age (UPENN, D31) or the
+  centre (HECKTOR 2022, D34). One penalised model on [1056 image features + 1-3 covariates]
+  would shrink the covariates with the same penalty as the image features, so the result
+  would depend on the penalty more than on the data. A blend of two fitted probes keeps
+  each part as good as alone and reports how much weight val gives the images.
+- **Rejected:** concatenating covariates to the features (above); stacking with a logistic
+  regression on val (M4-style): two free weights plus an intercept on 46-70 val cases;
+  residualising the label on the covariates (does not carry over to the Cox model).
+- **Open:** val picks both the probes' hyperparameters and `w`, so the val scores used for
+  `w` are optimistic for the image probe (as in M4 stacking). `w` varies a lot between folds
+  (0.1-0.9 on HECKTOR, 0.0-0.8 on UPENN): small val sets. Adding the centre does not change
+  a within-centre metric (a constant per centre) unless val picks `w` = 0 (every pair then
+  ties, 0.5), so read plain AUROC/C-index for `+group`.

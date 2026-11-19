@@ -5,6 +5,7 @@ feature map in several ways, using the ROI mask exported by ``prepare``. ``probe
 an L2 logistic regression per fold on one pooling and writes results in the same format
 as fine-tuned runs, so ``nnfb-predict summarize`` lists both. ``fuse`` combines the
 features of several single-modality tasks of the same cases (late fusion, D14, D30).
+``combine`` blends an image probe with a covariate probe (e.g. age, centre; D36).
 
 The encoder is built with glovita's ``nnFoundationEncoder`` (same weights and
 architecture as fine-tuning). glovita's head sees the mean of this feature map
@@ -448,6 +449,96 @@ def fuse(
                 stack_folds(name, run, xs)
             else:
                 raise typer.Exit(f"Unknown fusion method {m!r}: {FUSIONS}")
+
+
+# Image + covariates (D36): weight of the image score, tried on val.
+BLEND_WEIGHTS = tuple(np.round(np.linspace(0, 1, 11), 2))
+
+
+def plus_run_name(base: str, columns: list[str]) -> str:
+    """``vit_frozen_roi_mean_logreg`` + [age] -> ``vit_frozen_roi_mean_plus_age_logreg``."""
+    stem, kind = base.rsplit("_", 1)
+    return f"{stem}_plus_{'_'.join(columns)}_{kind}"
+
+
+def blend(val_scores: np.ndarray, test_scores: np.ndarray, val_metric) -> tuple[np.ndarray, float]:
+    """Weighted sum of two scores (columns: image, covariates), each standardised with val
+    statistics. The image weight ``w`` (0 = covariates alone, 1 = image alone) maximises
+    ``val_metric`` over ``BLEND_WEIGHTS``; ties keep the smaller ``w``. Returns the test
+    scores and ``w``."""
+    mean, std = val_scores.mean(0), val_scores.std(0)
+    std = np.where(std > 0, std, 1.0)
+    zv, zt = (val_scores - mean) / std, (test_scores - mean) / std
+    w = max(BLEND_WEIGHTS, key=lambda w: val_metric(w * zv[:, 0] + (1 - w) * zv[:, 1]))
+    return w * zt[:, 0] + (1 - w) * zt[:, 1], float(w)
+
+
+def image_features(task: str, model: str, pooling: str | None, cases: list[str]):
+    """(base run name, features) of an image probe: frozen features or radiomics."""
+    if model == "radiomics":
+        from nnfoundation_bench.modeling.radiomics_baseline import load_features
+
+        return "radiomics_original_logreg", load_features(task, "original", cases)[0]
+    return probe_run_name(model, pooling), load_pooled(task, model, pooling, cases)
+
+
+def task_covariates(task: str, cases: list[str], columns: list[str]) -> np.ndarray:
+    from nnfoundation_bench.modeling.predict import covariate_matrix
+
+    labels = pd.read_csv(
+        PROCESSED_DATA_DIR / processed_task(task) / "labels.csv", dtype={"case_id": str}
+    ).set_index("case_id")
+    if missing := [c for c in columns if c not in labels]:
+        raise typer.Exit(f"{task}: no column {missing} in labels.csv")
+    return covariate_matrix(labels.loc[cases], columns)
+
+
+def combine_folds(task: str, run: str, x_image: np.ndarray, x_cov: np.ndarray) -> list[float]:
+    """Per fold: an image probe and a covariate probe (``fit_probe``: train, C by val), then
+    ``blend`` of their logits with the image weight chosen by val AUROC (D36)."""
+    from scipy.special import expit, logit
+    from sklearn.metrics import roc_auc_score
+
+    cases, y, splits = task_labels(task)
+    index = {c: i for i, c in enumerate(cases)}
+    aucs = []
+    for fold, split in enumerate(splits):
+        idx = {k: np.array([index[c] for c in v]) for k, v in split.items()}
+        n_val = len(idx["val"])
+        both = {**idx, "test": np.concatenate([idx["val"], idx["test"]])}
+        scores = np.column_stack(
+            [logit(np.clip(fit_probe(x, y, both)[0], 1e-6, 1 - 1e-6)) for x in (x_image, x_cov)]
+        )
+        y_val = y[idx["val"]]
+        test, w = blend(
+            scores[:n_val], scores[n_val:], lambda s, y_val=y_val: roc_auc_score(y_val, s)
+        )
+        info = {"blend_weight_image": w}
+        aucs.append(save_fold(task, run, fold, split["test"], y[idx["test"]], expit(test), info))
+    logger.info(f"{run}: test AUROC {np.nanmean(aucs):.4f} ± {np.nanstd(aucs, ddof=1):.4f}")
+    return aucs
+
+
+@app.command()
+def combine(
+    task: str,
+    model: str = typer.Option("vit", help=f"{', '.join(MODELS)} or radiomics (original set)"),
+    pooling: Annotated[
+        list[str] | None, typer.Option(help="Poolings (default: all; not radiomics)")
+    ] = None,
+    column: Annotated[
+        list[str] | None, typer.Option(help="labels.csv covariates (default: age)")
+    ] = None,
+) -> None:
+    """Image probe + covariate probe blended on val (D36). Run
+    ``<image run>_plus_<columns>_logreg``; compare with the image run and
+    ``covariates_<columns>_logreg`` (``<!-- generated: adjusted TASK -->``)."""
+    cases, _, _ = task_labels(task)
+    columns = column or ["age"]
+    x_cov = task_covariates(task, cases, columns)
+    for pool in [None] if model == "radiomics" else pooling or POOLINGS:
+        base, x_image = image_features(task, model, pool, cases)
+        combine_folds(task, plus_run_name(base, columns), x_image, x_cov)
 
 
 if __name__ == "__main__":
