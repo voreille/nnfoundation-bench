@@ -71,3 +71,10 @@ def test_cox_probe_writes_cindex_results_and_the_cindex_grid(tmp_path, monkeypat
     assert any(line.startswith("| F2 | - / 0.") for line in grid)
     assert any(line.startswith("| ref-age | 0.") for line in grid)
     assert len(predict.auroc_stats("t")) == 0
+
+
+def test_cli_exposes_probe_as_a_subcommand():
+    from typer.testing import CliRunner
+
+    result = CliRunner().invoke(cox_probe.app, ["probe", "--help"])
+    assert result.exit_code == 0 and "--model" in result.output

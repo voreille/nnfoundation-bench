@@ -23,6 +23,12 @@ from nnfoundation_bench.weights import MODELS
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
+
+@app.callback()
+def main() -> None:
+    """Cox survival probes (C-index). A callback keeps ``probe`` a subcommand."""
+
+
 # Ridge strengths tried on val (standardised features; sksurv penalty 0.5 * alpha * |b|^2).
 COX_ALPHAS = tuple(10.0**k for k in range(-1, 6))
 
