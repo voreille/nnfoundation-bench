@@ -526,8 +526,8 @@ Results, 2026-11-19:
   C-index (`ref-site`), level with the best ViT probes (0.651-0.658 AUROC). Recurrence rates
   and follow-up differ by centre (USZ 37/82 positive, MDA 53/365).
 - **The ViT keeps some signal within centres:** within-centre AUROC 0.59-0.62 (best PET F1
-  0.616, CT F2 0.590), where centre is 0.5 by construction. C-index up to 0.637 (PET F3) and 0.634 (CT F2), a little
-  above centre alone (no within-centre C-index yet).
+  0.616, CT F2 0.590), where centre is 0.5 by construction. C-index up to 0.637 (PET F3)
+  and 0.634 (CT F2), a little above centre alone (no within-centre C-index yet).
 - **PET and CT are close.** PET is better on the whole crop (F1), CT catches up with ROI
   pooling (F2 0.651 vs F1 0.614). Radiomics 0.60-0.61 AUROC, ~0.60 C-index, weaker within
   centres (0.55-0.56).
