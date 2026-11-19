@@ -5,6 +5,8 @@ The survival counterpart of the logistic-regression probes in ``features.py``: s
 features, same splits (``splits.json``), same results layout
 (``outputs/results/<task>/<run>/fold<k>/``). The task's ``labels.csv`` must have ``time``
 and ``event`` columns. metrics.json holds ``cindex`` (Harrell) instead of ``auroc``.
+``combine`` blends an image Cox model with a covariate Cox model (D33);
+``within_group_cindex`` is the within-centre C-index (D32).
 """
 
 import json
@@ -45,6 +47,33 @@ def cindex(time: np.ndarray, event: np.ndarray, risk: np.ndarray) -> float:
     from sksurv.metrics import concordance_index_censored
 
     return float(concordance_index_censored(event.astype(bool), time, risk)[0])
+
+
+def within_group_cindex(
+    time: np.ndarray, event: np.ndarray, risk: np.ndarray, groups: np.ndarray
+) -> float:
+    """Harrell's C over comparable pairs from the same group only, pooled over groups (D32).
+
+    The survival analogue of ``within_group_auroc`` (D24): a risk that depends on the group
+    alone ties every pair and gets exactly 0.5. NaN if no group has a comparable pair.
+    """
+    from sksurv.exceptions import NoComparablePairException
+    from sksurv.metrics import concordance_index_censored
+
+    concordant, pairs = 0.0, 0
+    for group in np.unique(groups):
+        g = groups == group
+        if g.sum() < 2 or not event[g].any():
+            continue
+        try:
+            _, conc, disc, tied_risk, _ = concordance_index_censored(
+                event[g].astype(bool), time[g], risk[g]
+            )
+        except NoComparablePairException:
+            continue
+        concordant += conc + 0.5 * tied_risk
+        pairs += conc + disc + tied_risk
+    return concordant / pairs if pairs else float("nan")
 
 
 def fit_cox(
@@ -99,6 +128,19 @@ def survival_columns(task: str, cases: list[str]) -> tuple[np.ndarray, np.ndarra
     return labels.loc[cases, "time"].to_numpy(float), labels.loc[cases, "event"].to_numpy(int)
 
 
+def save_cox_fold(task, run, fold, cases, time, event, risk, info: dict) -> float:
+    """Write one fold's predictions.csv (case_id, time, event, risk) and metrics.json."""
+    out_dir = results_dir(task, run, fold)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({"case_id": cases, "time": time, "event": event, "risk": risk}).to_csv(
+        out_dir / "predictions.csv", index=False
+    )
+    metrics = {"task": task, "run": run, "fold": fold, "cindex": cindex(time, event, risk)}
+    metrics |= info | {"n": len(cases), "n_events": int(event.sum())}
+    (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
+    return metrics["cindex"]
+
+
 def cox_folds(task: str, run: str, x: np.ndarray) -> list[float]:
     """``fit_cox`` on every fold; ``x`` rows follow ``task_labels`` order. Writes
     predictions.csv (case_id, time, event, risk) and metrics.json (cindex) per fold."""
@@ -110,24 +152,10 @@ def cox_folds(task: str, run: str, x: np.ndarray) -> list[float]:
         idx = {k: np.array([index[c] for c in v]) for k, v in split.items()}
         risk, alpha, val_c = fit_cox(x, time, event, idx)
         te = idx["test"]
-        out_dir = results_dir(task, run, fold)
-        out_dir.mkdir(parents=True, exist_ok=True)
-        pd.DataFrame(
-            {"case_id": split["test"], "time": time[te], "event": event[te], "risk": risk}
-        ).to_csv(out_dir / "predictions.csv", index=False)
-        metrics = {
-            "task": task,
-            "run": run,
-            "fold": fold,
-            "cindex": cindex(time[te], event[te], risk),
-            "cox_alpha": alpha,
-            "val_cindex": val_c,
-            "num_features": int(x.shape[1]),
-            "n": len(te),
-            "n_events": int(event[te].sum()),
-        }
-        (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
-        scores.append(metrics["cindex"])
+        info = {"cox_alpha": alpha, "val_cindex": val_c, "num_features": int(x.shape[1])}
+        scores.append(
+            save_cox_fold(task, run, fold, split["test"], time[te], event[te], risk, info)
+        )
     logger.info(f"{run}: test C-index {np.mean(scores):.4f} ± {np.std(scores, ddof=1):.4f}")
     return scores
 
@@ -168,6 +196,58 @@ def probe(
         cox_folds(task, cox_run_name("covariates", "_".join(columns)), x)
     else:
         raise typer.Exit(f"Unknown model {model!r}")
+
+
+def combine_cox_folds(task: str, run: str, x_image: np.ndarray, x_cov: np.ndarray) -> list[float]:
+    """Per fold: an image Cox model and a covariate Cox model (``fit_cox``: train, alpha by
+    val), then ``blend`` of their risks with the image weight chosen by val C-index (D33)."""
+    from nnfoundation_bench.modeling.features import blend
+
+    cases, _, splits = task_labels(task)
+    time, event = survival_columns(task, cases)
+    index = {c: i for i, c in enumerate(cases)}
+    scores = []
+    for fold, split in enumerate(splits):
+        idx = {k: np.array([index[c] for c in v]) for k, v in split.items()}
+        va, te, n_val = idx["val"], idx["test"], len(idx["val"])
+        both = {**idx, "test": np.concatenate([va, te])}
+        risks = np.column_stack([fit_cox(x, time, event, both)[0] for x in (x_image, x_cov)])
+        risk, w = blend(
+            risks[:n_val], risks[n_val:], lambda r, va=va: cindex(time[va], event[va], r)
+        )
+        info = {"blend_weight_image": w}
+        scores.append(
+            save_cox_fold(task, run, fold, split["test"], time[te], event[te], risk, info)
+        )
+    logger.info(f"{run}: test C-index {np.mean(scores):.4f} ± {np.std(scores, ddof=1):.4f}")
+    return scores
+
+
+@app.command()
+def combine(
+    task: str,
+    model: str = typer.Option("vit", help=f"{', '.join(MODELS)} or radiomics"),
+    pooling: Annotated[
+        list[str] | None, typer.Option(help="Poolings (default: all; not radiomics)")
+    ] = None,
+    column: Annotated[
+        list[str] | None, typer.Option(help="labels.csv covariates (default: age)")
+    ] = None,
+) -> None:
+    """Image Cox + covariate Cox blended on val (D33). Run ``<image run>_plus_<columns>_cox``."""
+    from nnfoundation_bench.modeling.features import (
+        image_features,
+        plus_run_name,
+        task_covariates,
+    )
+
+    cases, _, _ = task_labels(task)
+    columns = column or ["age"]
+    x_cov = task_covariates(task, cases, columns)
+    for pool in [None] if model == "radiomics" else pooling or POOLINGS:
+        base, x_image = image_features(task, model, pool, cases)
+        run = plus_run_name(base.removesuffix("_logreg") + "_cox", columns)
+        combine_cox_folds(task, run, x_image, x_cov)
 
 
 if __name__ == "__main__":

@@ -571,3 +571,37 @@ Implements M2-M4 of D14.
   follow-up distribution (Uno's C would correct it). Follow-up differs by centre (median RFS
   MDA ~6 years, CHB ~2 years): read the within-centre AUROC next to plain AUROC. GTVn and
   PET + CT fusion are left for later.
+
+## D32. Within-centre C-index (active, 2026-11-19)
+- **Choice:** Harrell's C over comparable pairs from the same `group` only, pooled over
+  groups (`cox_probe.within_group_cindex`), recomputed from each Cox run's predictions.csv.
+  Generated grid `<!-- generated: cindex-within [patterns] -->`, for tasks with a `group`.
+- **Why:** the survival analogue of the within-centre AUROC (D24). On HECKTOR 2022 the centre
+  alone reaches a C-index of 0.613 (D31); a risk that depends on the centre alone ties every
+  within-centre pair and gets exactly 0.5, so the metric shows what the images add.
+- **Rejected:** a Cox model stratified by centre (changes the model, not the metric; the
+  within-centre metric applies unchanged to every existing run); averaging per-centre
+  C-indices (small centres such as CHB, with 2 events, would weigh as much as MDA).
+
+## D33. Image + covariates: two probes blended on val (active, 2026-11-19)
+- **Choice:** `nnfb-features combine` / `nnfb-cox combine <task> --model ... --column ...`
+  fit, per fold, the image probe and a covariate probe separately (train, hyperparameter by
+  val, as before), standardise their scores (logits / Cox risks) with val statistics and sum
+  them with an image weight `w` in 0, 0.1, ..., 1 chosen by val AUROC / C-index (`w` = 0 is
+  the covariates alone, 1 the image alone; recorded as `blend_weight_image`). Runs
+  `<image run>_plus_<columns>_<logreg|cox>`. Generated table `<!-- generated: adjusted
+  <task> -->` lists each blend next to its two parts, with AUROC, C-index and (tasks with
+  centres) their within-centre versions.
+- **Why:** the question is whether the images add anything over age (UPENN, D29) or the
+  centre (HECKTOR 2022, D31). One penalised model on [1056 image features + 1-3 covariates]
+  would shrink the covariates with the same penalty as the image features, so the result
+  would depend on the penalty more than on the data. A blend of two fitted probes keeps
+  each part as good as alone and reports how much weight val gives the images.
+- **Rejected:** concatenating covariates to the features (above); stacking with a logistic
+  regression on val (M4-style): two free weights plus an intercept on 46-70 val cases;
+  residualising the label on the covariates (does not carry over to the Cox model).
+- **Open:** val picks both the probes' hyperparameters and `w`, so the val scores used for
+  `w` are optimistic for the image probe (as in M4 stacking). `w` varies a lot between folds
+  (0.1-0.9 on HECKTOR, 0.0-0.8 on UPENN): small val sets. Adding the centre does not change
+  a within-centre metric (a constant per centre) unless val picks `w` = 0 (every pair then
+  ties, 0.5), so read plain AUROC/C-index for `+group`.

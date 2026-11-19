@@ -40,9 +40,10 @@ def _survival_task(tmp_path, monkeypatch):
     )
     split = {"train": cases[:30], "val": cases[30:40], "test": cases[40:]}
     (root / "splits.json").write_text(json.dumps([split]))
-    pd.DataFrame({"case_id": cases, "label": 0, "time": time, "event": 1, "age": x[:, 0]}).to_csv(
-        root / "labels.csv", index=False
-    )
+    pd.DataFrame(
+        {"case_id": cases, "label": 0, "time": time, "event": 1, "age": x[:, 0],
+         "group": ["A", "B"] * 30}
+    ).to_csv(root / "labels.csv", index=False)  # fmt: skip
     for c, row in zip(cases, x, strict=True):
         np.savez(root / "features" / "vit" / f"{c}.npz", roi_mean=row)
     for module in (features, cox_probe, predict):

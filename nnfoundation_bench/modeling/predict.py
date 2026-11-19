@@ -315,14 +315,83 @@ COX_DESIGN_RUNS = {
 }
 
 
-def cindex_summary(task: str) -> pd.Series:
-    """``"mean ± std"`` test C-index per Cox run of TASK (empty if none)."""
-    paths = (RESULTS_DIR / task).glob("*/fold*/metrics.json")
-    rows = [r for p in paths if "cindex" in (r := json.loads(p.read_text()))]
+def cindex_stats(task: str, within_group: bool = False) -> pd.DataFrame:
+    """Test C-index ``mean``, ``std`` and fold ``count`` per Cox run of TASK (empty if none).
+
+    ``within_group`` recomputes each fold's C-index from its ``predictions.csv`` over pairs
+    from the same group only (``within_group_cindex``, D32; tasks with a ``group`` column).
+    """
+    empty = pd.DataFrame(columns=["mean", "std", "count"])
+    if not within_group:
+        paths = (RESULTS_DIR / task).glob("*/fold*/metrics.json")
+        rows = [r for p in paths if "cindex" in (r := json.loads(p.read_text()))]
+    elif (groups := task_groups(task)) is None:
+        return empty
+    else:
+        from nnfoundation_bench.modeling.cox_probe import within_group_cindex
+
+        rows = []
+        for path in (RESULTS_DIR / task).glob("*/fold*/predictions.csv"):
+            cases = pd.read_csv(path, dtype={"case_id": str})
+            if "risk" not in cases:  # AUROC runs
+                continue
+            c = within_group_cindex(
+                cases["time"].to_numpy(float),
+                cases["event"].to_numpy(int),
+                cases["risk"].to_numpy(float),
+                cases["case_id"].map(groups).to_numpy(),
+            )
+            rows.append({"run": path.parent.parent.name, "cindex": c})
     if not rows:
-        return pd.Series(dtype=str)
-    stats = pd.DataFrame(rows).groupby("run")["cindex"].agg(["mean", "std", "count"])
-    return stats.apply(format_auroc, axis=1)
+        return empty
+    return pd.DataFrame(rows).groupby("run")["cindex"].agg(["mean", "std", "count"])
+
+
+def cindex_summary(task: str, within_group: bool = False) -> pd.Series:
+    """``"mean ± std"`` test C-index per Cox run of TASK (empty if none)."""
+    stats = cindex_stats(task, within_group)
+    return stats.apply(format_auroc, axis=1) if len(stats) else pd.Series(dtype=str)
+
+
+def adjusted_table(task: str) -> str:
+    """Image + covariate blends (D33) of TASK next to their parts: for every
+    ``<image>_plus_<columns>`` run, the rows ``covariates_<columns>``, ``<image>`` and the
+    blend, with AUROC and C-index (plus within-centre columns for tasks with groups)."""
+    has_groups = task_groups(task) is not None
+    stats = {
+        "AUROC": auroc_stats(task),
+        "C-index": cindex_stats(task),
+    }
+    if has_groups:
+        stats["Within-centre AUROC"] = auroc_stats(task, within_group=True)
+        stats["Within-centre C-index"] = cindex_stats(task, within_group=True)
+    columns = [c for c in ("AUROC", "Within-centre AUROC", "C-index", "Within-centre C-index")
+               if c in stats]  # fmt: skip
+    runs = {r for s in stats.values() for r in s.index}
+    stems = []
+    for blend_stem in sorted({r.rsplit("_", 1)[0] for r in runs if "_plus_" in r}):
+        image, covariates = blend_stem.split("_plus_")
+        for stem in (f"covariates_{covariates}", image, blend_stem):
+            if stem not in stems:
+                stems.append(stem)
+    if not stems:
+        return "No results yet."
+    header = "| Run | " + " | ".join(columns) + " |"
+    lines = [header, "|" + "---|" * (len(columns) + 1)]
+    for stem in stems:
+        cells = []
+        for col in columns:
+            run = stem + ("_cox" if col.endswith("C-index") else "_logreg")
+            if (
+                col == "AUROC"
+                and stem.startswith("covariates_group")
+                and run not in stats[col].index
+            ):
+                run = "group_prior"  # centre alone, same thing as a logistic probe on group
+            s = stats[col]
+            cells.append(format_auroc(s.loc[run]) if run in s.index else "-")
+        lines.append(f"| `{stem}` | " + " | ".join(cells) + " |")
+    return "\n".join(lines)
 
 
 def design_ids(models: tuple[str, ...] = ("cnn", "vit")) -> dict[str, str]:
@@ -353,8 +422,11 @@ def runs_table(stats: pd.DataFrame, within: pd.DataFrame | None = None) -> str:
 #   <!-- generated: design-within [patterns...] -->  ...  <!-- end generated -->
 #   <!-- generated: runs <task> -->                  ...  <!-- end generated -->
 #   <!-- generated: cindex [patterns...] -->         ...  <!-- end generated -->
+#   <!-- generated: cindex-within [patterns...] -->  ...  <!-- end generated -->
+#   <!-- generated: adjusted <task> -->              ...  <!-- end generated -->
 # design-within: within-centre AUROC, for the tasks that have a group column.
 # cindex: test C-index of the Cox probes (nnfb-cox), for tasks with survival labels.
+# cindex-within: within-centre C-index (D32). adjusted: image + covariate blends (D33).
 GENERATED_BLOCK = re.compile(
     r"(?P<open><!-- generated: (?P<spec>[^>]*?) -->\n).*?(?P<close><!-- end generated -->)",
     re.DOTALL,
@@ -375,12 +447,16 @@ def render_block(spec: str) -> str:
         if not tasks:
             return "No results yet."
         return design_table({task: auroc_summary(task, within) for task in tasks})
-    if kind == "cindex":
-        summaries = {t: cindex_summary(t) for t in match_tasks(args)}
+    if kind in ("cindex", "cindex-within"):
+        within = kind == "cindex-within"
+        tasks = [t for t in match_tasks(args) if not within or task_groups(t) is not None]
+        summaries = {t: cindex_summary(t, within) for t in tasks}
         summaries = {t: s for t, s in summaries.items() if len(s)}
         if not summaries:
             return "No results yet."
         return design_table(summaries, designs=COX_DESIGN_RUNS, ref=None)
+    if kind == "adjusted" and len(args) == 1:
+        return adjusted_table(args[0])
     if kind == "runs" and len(args) == 1:
         stats = auroc_stats(args[0])
         if not len(stats):
