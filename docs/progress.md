@@ -12,7 +12,7 @@ as input channels, ROI handling, and how to pool features within a ROI.
 
 **Target: HECKTOR HPV classification at AUROC ≥ 0.99.**
 
-## Current status (2026-11-18)
+## Current status (2026-11-19)
 
 | Task | Data | Pipeline | Results |
 |------|------|----------|---------|
@@ -23,26 +23,36 @@ as input channels, ROI handling, and how to pool features within a ROI.
 | `stoic_severe`, `stoic_covid` | 2000 scans | both prepared: 2000 cases, no failures; `stoic_covid` links the crops, features and radiomics of `stoic_severe` | frozen probes and radiomics done for both |
 | `hecktor2022_rfs_ct`, `hecktor2022_rfs_pet` | HECKTOR 2022 train + test on the NAS, all checked: 827 patients with RFS, 174 relapses, 9 centres | preprocessing smoke-tested on 5 cases (PET and CT crops on the same grid, labels 1/2 kept); survival probe to write | none yet |
 | `rsna_spine_fracture` | 2019 studies unpacked on the NAS, checked (961 positive) | prepare on the host stopped at 1792 of 2019 (tmux session killed 2026-11-18 08:13); rerun resumes | none yet |
+| `upenn_os_*` (4 sequences) | 452 patients on the NAS (`UPENN_GBM`) + OS labels placed by hand (`GBM-UPENN-OS`), all 4 sequences, a mask for each (145 expert) | all 4 prepared on the host: 452 cases, 226 survived 1 year, no failures, no missing ROI; identical labels and splits (D31) | probes, radiomics, age reference, Cox / C-index (D32), fusion (`upenn_os_fused`) done |
+| `brats_gbm_*` (4 sequences) | 1809 scans on the NAS, 1621 with seg; metadata xlsx read | all 4 prepared on the host: 632 cases, 384 GBM, no failures, no missing ROI; identical labels and splits (D28) | probes, radiomics, site and age references, fusion (`brats_gbm_fused`) done |
 
 Next steps:
 1. Frozen probes and radiomics are done on HECKTOR, both STOIC tasks and the 8 LLD-MMRI
    phases.
-2. RSNA: resume `prepare rsna_spine_fracture`, then `RADIOMICS="original"
+2. BraTS: age references and fusion done. Next: a generated age-and-site stratified AUROC
+   (see Results) and age-adjusted probes (D29 open).
+3. UPENN survival: probes, Cox and fusion done; age alone beats every imaging probe. Next:
+   age + imaging probes (AUROC and Cox) to test whether imaging adds anything over age.
+4. RSNA: resume `prepare rsna_spine_fracture`, then `RADIOMICS="original"
    scripts/run_probes.sh rsna_spine_fracture`.
-3. HECKTOR 2022 RFS (D26): prepare both modalities on the host; meanwhile write the Cox
+5. HECKTOR 2022 RFS (D26): prepare both modalities on the host; meanwhile write the Cox
    probe, the C-index (plain, within-centre) and the per-ROI poolings (GTVp, GTVn,
    concatenation) are written (D27); then `scripts/run_probes.sh` on both tasks. Next:
    PET + CT late fusion (M2-M4) and the official train -> test view.
-4. Fine-tuning baseline with glovita: `FOLDS=0 scripts/run_benchmark.sh hecktor_hpv_pet_gtvp`
+6. Fine-tuning baseline with glovita: `FOLDS=0 scripts/run_benchmark.sh hecktor_hpv_pet_gtvp`
    (design T1).
-5. Input-size designs S2-S7: add `--fov` / `--mode` to `nnfb-features extract`, then run
+7. Input-size designs S2-S7: add `--fov` / `--mode` to `nnfb-features extract`, then run
    the FOV sweep.
-6. LLD-MMRI late fusion over the phases (M2-M4, D14, D15): the single-phase probes are done.
-7. KiTS Liver full run (background, paper reproduction).
-8. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
+8. LLD-MMRI late fusion over the phases (M2-M4, D14, D15, D30): `nnfb-features fuse` is ready.
+9. KiTS Liver full run (background, paper reproduction).
+10. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
    "pathology"). Each task needs about 12 GB in `data/processed`. See D12.
 
 ## Backlog
+
+- **Age-and-site stratified AUROC as a generated table** (pairs from the same centre and age
+  band, like D24 with a finer group). On BraTS it separated the age shortcut from tumour
+  signal (Results). *Trigger:* another task with an `age` column, or reporting BraTS.
 
 Ideas parked until results on more datasets show they are worth it. Each item says what
 would trigger it. Move an item to "Next steps" when it is picked up.
@@ -96,6 +106,8 @@ dataset to get a broad view. Each cell of the results grid gives test AUROC as
 | KiTS Liver (`kits_liver`) | CT | liver (TotalSegmentator), often larger than 192 mm | CT, 192³ at 1 mm centred on the liver | about 5 test positives per split: noisy |
 | HECKTOR 2022 RFS (`hecktor2022_rfs_ct`, `hecktor2022_rfs_pet`) | CT, PET (same patient, same crop grid) | GTVp ∪ GTVn (dataset masks, labels kept) | CT or PET, 192³ at 1 mm centred on GTVp ∪ GTVn | survival: C-index, not AUROC (D27); 174 relapses in 827; challenge Task 2 winners about 0.68 on the test set (official split, not comparable to our splits) |
 | STOIC 2021 (`stoic_severe`, `stoic_covid`) | CT | lungs (TotalSegmentator, 3 mm masks, D18); wider than 192 mm | CT, 192³ at 1 mm centred on the lungs | 301/2000 severe, 1205/2000 COVID; STOIC challenge (severe, hidden test set): about 0.8 |
+| UPENN-GBM survival (`upenn_os_*`) | T1, T1GD, T2, FLAIR (co-registered, one grid) | whole tumour (expert mask, else automatic) | each sequence, 192³ at 1 mm centred on the tumour | 1-year OS 226/452 (AUROC); C-index grid for the Cox probes; age reference |
+| BraTS 2024 glioma (`brats_gbm_*`) | t1c, t1n, t2f, t2w (co-registered, one grid) | whole tumour (dataset seg, labels 1+2+3) | each sequence, 192³ at 1 mm centred on the tumour | 384/632 GBM; 5 sites, GBM share 38-100% by site: `ref` row (site only) |
 
 Unless a row says otherwise:
 - **Input:** the dataset's default input above, z-scored over the whole scan.
@@ -136,10 +148,12 @@ runs stay in the per-task runs tables).
 | I1 | Input | Other single modality: CT (HECKTOR), coronal or axial series (MRNet) |  | KiTS, STOIC n/a (CT only) | planned |
 | I3 | Input | ROI = GTVp ∪ GTVn |  | HECKTOR only | planned |
 | M1 | Modality fusion | Early fusion: modalities as channels on one grid, stem weights repeated / n (glovita). Not planned: we extract embeddings per modality (D14) |  | all | dropped |
-| M2 | Modality fusion (late) | Feature-level: per-modality embeddings concatenated, one probe |  | HECKTOR, MRNet, LLD-MMRI | planned |
-| M3 | Modality fusion (late) | Feature-level: mean of the per-modality embeddings (one encoder, so one space), one probe |  | HECKTOR, MRNet, LLD-MMRI | planned |
-| M4 | Modality fusion (late) | Score-level: one probe per modality, scores combined by a logistic regression fitted on val (the MRNet paper's scheme) |  | HECKTOR, MRNet, LLD-MMRI | planned |
+| M2 | Modality fusion (late) | Feature-level: per-modality embeddings concatenated, one probe (grid: ROI mean; D30) | `<m>_fused_concat_<pooling>_logreg` on a fused task | HECKTOR, MRNet, LLD-MMRI, BraTS | ready |
+| M3 | Modality fusion (late) | Feature-level: mean of the per-modality embeddings (one encoder, so one space), one probe (grid: ROI mean) | `<m>_fused_mean_<pooling>_logreg` | HECKTOR, MRNet, LLD-MMRI, BraTS | ready |
+| M4 | Modality fusion (late) | Score-level: one probe per modality, scores combined by a logistic regression fitted on val (the MRNet paper's scheme; grid: ROI mean) | `<m>_fused_stack_<pooling>_logreg` | HECKTOR, MRNet, LLD-MMRI, BraTS | ready |
 | M5 | Modality fusion (late) | Learned attention across the per-modality embeddings or token maps (needs `--save-maps` and a small trained head) |  | HECKTOR, MRNet, LLD-MMRI | planned |
+| ref-age | Reference | Age alone, same probe and splits (D29) | `covariates_age_logreg` | tasks with an `age` column (BraTS) | ready |
+| ref-age+site | Reference | Age and centre (one-hot), same probe | `covariates_age_group_logreg` | tasks with `age` and `group` | ready |
 | E1 | Evaluation | Leave-one-centre-out (removes the centre shortcut, D9) |  | HECKTOR only (other tasks: single centre or no centre released) | planned |
 
 Results grids, one column per task with results. Generated from `outputs/results/` by
@@ -193,6 +207,43 @@ LLD-MMRI, one column per MR phase (task `lld_mmri_malignant_<phase>`):
 | T1-last | - / - | - / - | - / - | - / - | - / - | - / - | - / - | - / - |
 | R1 | 0.786 ± 0.040 | 0.823 ± 0.045 | 0.687 ± 0.037 | 0.739 ± 0.034 | 0.709 ± 0.026 | 0.705 ± 0.035 | 0.755 ± 0.037 | 0.828 ± 0.029 |
 | ref | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
+<!-- end generated -->
+
+BraTS 2024 glioma, one column per MR sequence (task `brats_gbm_<seq>`), GBM vs
+astrocytoma/oligodendroglioma. Test AUROC, then within-centre AUROC (D24):
+
+<!-- generated: design brats_* -->
+| ID | brats_gbm_fused | brats_gbm_t1c | brats_gbm_t1n | brats_gbm_t2f | brats_gbm_t2w |
+|----|---|---|---|---|---|
+| F1 | - / - | 0.728 ± 0.011 / 0.839 ± 0.016 | 0.728 ± 0.016 / 0.874 ± 0.015 | 0.725 ± 0.027 / 0.852 ± 0.019 | 0.730 ± 0.028 / 0.877 ± 0.014 |
+| F2 | - / - | 0.689 ± 0.031 / 0.851 ± 0.013 | 0.668 ± 0.028 / 0.844 ± 0.015 | 0.730 ± 0.022 / 0.847 ± 0.013 | 0.661 ± 0.053 / 0.817 ± 0.029 |
+| F3 | - / - | 0.669 ± 0.016 / 0.834 ± 0.017 | 0.692 ± 0.029 / 0.832 ± 0.018 | 0.739 ± 0.022 / 0.829 ± 0.017 | 0.683 ± 0.020 / 0.855 ± 0.017 |
+| T1 | - / - | - / - | - / - | - / - | - / - |
+| T1-last | - / - | - / - | - / - | - / - | - / - |
+| R1 | - | 0.778 ± 0.046 | 0.756 ± 0.018 | 0.756 ± 0.020 | 0.759 ± 0.018 |
+| M2 | 0.749 ± 0.007 / 0.864 ± 0.013 | - / - | - / - | - / - | - / - |
+| M3 | 0.710 ± 0.044 / 0.851 ± 0.011 | - / - | - / - | - / - | - / - |
+| M4 | 0.747 ± 0.027 / 0.854 ± 0.013 | - / - | - / - | - / - | - / - |
+| ref-age | 0.772 ± 0.018 | 0.772 ± 0.018 | 0.772 ± 0.018 | 0.772 ± 0.018 | 0.772 ± 0.018 |
+| ref-age+site | 0.814 ± 0.015 | 0.814 ± 0.015 | 0.814 ± 0.015 | 0.814 ± 0.015 | 0.814 ± 0.015 |
+| ref | 0.667 ± 0.001 | 0.667 ± 0.001 | 0.667 ± 0.001 | 0.667 ± 0.001 | 0.667 ± 0.001 |
+<!-- end generated -->
+
+<!-- generated: design-within brats_* -->
+| ID | brats_gbm_fused | brats_gbm_t1c | brats_gbm_t1n | brats_gbm_t2f | brats_gbm_t2w |
+|----|---|---|---|---|---|
+| F1 | - / - | 0.689 ± 0.014 / 0.790 ± 0.017 | 0.682 ± 0.027 / 0.829 ± 0.019 | 0.713 ± 0.020 / 0.809 ± 0.023 | 0.695 ± 0.020 / 0.825 ± 0.021 |
+| F2 | - / - | 0.675 ± 0.030 / 0.833 ± 0.018 | 0.664 ± 0.023 / 0.833 ± 0.022 | 0.702 ± 0.019 / 0.829 ± 0.022 | 0.663 ± 0.052 / 0.800 ± 0.031 |
+| F3 | - / - | 0.658 ± 0.015 / 0.804 ± 0.009 | 0.692 ± 0.023 / 0.810 ± 0.020 | 0.713 ± 0.020 / 0.799 ± 0.015 | 0.685 ± 0.020 / 0.823 ± 0.025 |
+| T1 | - / - | - / - | - / - | - / - | - / - |
+| T1-last | - / - | - / - | - / - | - / - | - / - |
+| R1 | - | 0.751 ± 0.048 | 0.698 ± 0.015 | 0.714 ± 0.036 | 0.716 ± 0.031 |
+| M2 | 0.724 ± 0.005 / 0.844 ± 0.016 | - / - | - / - | - / - | - / - |
+| M3 | 0.696 ± 0.043 / 0.831 ± 0.014 | - / - | - / - | - / - | - / - |
+| M4 | 0.725 ± 0.025 / 0.837 ± 0.015 | - / - | - / - | - / - | - / - |
+| ref-age | 0.776 ± 0.023 | 0.776 ± 0.023 | 0.776 ± 0.023 | 0.776 ± 0.023 | 0.776 ± 0.023 |
+| ref-age+site | 0.776 ± 0.023 | 0.776 ± 0.023 | 0.776 ± 0.023 | 0.776 ± 0.023 | 0.776 ± 0.023 |
+| ref | 0.500 ± 0.000 | 0.500 ± 0.000 | 0.500 ± 0.000 | 0.500 ± 0.000 | 0.500 ± 0.000 |
 <!-- end generated -->
 
 ### FOV sweep (designs S2-S5)
@@ -359,6 +410,135 @@ per split. Single-phase probes, 2026-11-17.
 - Late fusion over phases (M2-M4) is the natural next step: the best phases differ
   between the ViT (delay, venous, T2) and radiomics (venous, delay, arterial).
 
+### brats_gbm_*
+
+Grids above (`design brats_*`, `design-within brats_*`). 632 patients, 384 GBM; 252 train,
+64 val, 316 test per split. Single-sequence probes, 2026-11-18.
+- **ViT well above the site-only reference (0.667):** 0.84-0.88 plain, 0.79-0.83 within-centre.
+  Unlike HECKTOR, most of the signal is not the site.
+- **Best: ViT whole-crop mean on t2w (0.877) and t1n (0.874).** Within-centre the ROI mean is
+  level with or above the whole crop (t1c, t1n 0.833).
+- **ROI pooling does not help in plain AUROC** (unlike LLD-MMRI). The crop holds most of the
+  brain, so this may partly be patient age (atrophy, ventricles): GBM patients are older.
+  Confirmed by the age references below.
+- **ViT beats radiomics on every sequence** (R1 0.76-0.78 plain, 0.70-0.75 within). The CNN is
+  below radiomics (0.66-0.74), as on the other tasks.
+
+Late fusion over the 4 sequences (D30), every pooling and method, on the fused task
+`brats_gbm_fused` (AUROC, then within-centre AUROC):
+
+Age and fusion, 2026-11-18:
+- **Age is a strong shortcut:** age alone 0.772 (`ref-age`), age + site 0.814, within-centre
+  0.776. That is level with single-sequence radiomics (0.76-0.78). The ViT (0.84-0.88) is
+  above it, but by much less than it is above the site-only `ref` (0.667).
+- **The tumour ROI carries the signal beyond age.** One-off check (not a generated table):
+  AUROC on pairs from the same site *and* age decade, where age alone falls to 0.62. ViT
+  ROI-mean runs hold up (t1c F2 0.821, fused concat ROI mean 0.826); whole-crop runs drop more
+  (t2w F1 0.877 → 0.762, fused concat whole crop 0.885 → 0.781). So the whole-crop advantage in
+  plain AUROC is largely age; for this task, read ROI pooling as the better design.
+- **Fusion gains are small:** best plain AUROC is the concat of whole-crop embeddings (0.885 vs
+  0.877 single), best within-centre the concat of ROI means (M2 0.844 vs 0.833 single).
+  M2 ≈ M4 > M3 (averaging the embeddings loses information). Fused radiomics 0.817.
+- **CNN stays below age alone** in every variant (0.71-0.77).
+
+<!-- generated: runs brats_gbm_fused -->
+| Run | Design | AUROC | Within-centre AUROC |
+|---|---|---|---|
+| `vit_fused_concat_mean_logreg` |  | 0.885 ± 0.013 | 0.831 ± 0.018 |
+| `vit_fused_mean_mean_logreg` |  | 0.878 ± 0.014 | 0.823 ± 0.018 |
+| `vit_fused_stack_mean_logreg` |  | 0.877 ± 0.019 | 0.830 ± 0.020 |
+| `vit_fused_concat_roi_mean_logreg` | M2 | 0.864 ± 0.013 | 0.844 ± 0.016 |
+| `vit_fused_concat_roi_margin_mean_logreg` |  | 0.859 ± 0.019 | 0.830 ± 0.007 |
+| `vit_fused_stack_roi_margin_mean_logreg` |  | 0.854 ± 0.022 | 0.824 ± 0.014 |
+| `vit_fused_stack_roi_mean_logreg` | M4 | 0.854 ± 0.013 | 0.837 ± 0.015 |
+| `vit_fused_mean_roi_mean_logreg` | M3 | 0.851 ± 0.011 | 0.831 ± 0.014 |
+| `vit_fused_mean_roi_margin_mean_logreg` |  | 0.844 ± 0.025 | 0.813 ± 0.030 |
+| `radiomics_original_fused_concat_logreg` |  | 0.817 ± 0.023 | 0.774 ± 0.034 |
+| `covariates_age_group_logreg` | ref-age+site | 0.814 ± 0.015 | 0.776 ± 0.023 |
+| `radiomics_original_fused_stack_logreg` |  | 0.790 ± 0.021 | 0.754 ± 0.031 |
+| `covariates_age_logreg` | ref-age | 0.772 ± 0.018 | 0.776 ± 0.023 |
+| `cnn_fused_stack_mean_logreg` |  | 0.771 ± 0.011 | 0.725 ± 0.018 |
+| `cnn_fused_concat_mean_logreg` |  | 0.760 ± 0.032 | 0.697 ± 0.034 |
+| `cnn_fused_concat_roi_margin_mean_logreg` |  | 0.750 ± 0.023 | 0.723 ± 0.030 |
+| `cnn_fused_stack_roi_margin_mean_logreg` |  | 0.750 ± 0.037 | 0.732 ± 0.030 |
+| `cnn_fused_concat_roi_mean_logreg` | M2 | 0.749 ± 0.007 | 0.724 ± 0.005 |
+| `cnn_fused_stack_roi_mean_logreg` | M4 | 0.747 ± 0.027 | 0.725 ± 0.025 |
+| `cnn_fused_mean_mean_logreg` |  | 0.727 ± 0.017 | 0.691 ± 0.021 |
+| `cnn_fused_mean_roi_margin_mean_logreg` |  | 0.718 ± 0.036 | 0.708 ± 0.027 |
+| `cnn_fused_mean_roi_mean_logreg` | M3 | 0.710 ± 0.044 | 0.696 ± 0.043 |
+| `group_prior` | ref | 0.667 ± 0.001 | 0.500 ± 0.000 |
+<!-- end generated -->
+
+### upenn_os_*
+
+452 patients, 226 survived 1 year; 180 train, 46 val, 226 test per split. AUROC
+(1-year OS), then the C-index of the Cox probes (D32), then the fused runs:
+
+Results, 2026-11-19:
+- **Age alone beats every imaging probe:** 1-year AUROC 0.667, C-index 0.619. The best
+  single-sequence ViT is T2 F3 (ROI + 10 mm) at 0.655 AUROC and 0.623 C-index; most ViT runs
+  sit at 0.58-0.64 AUROC and 0.58-0.61 C-index. Survival from pre-operative imaging alone is
+  weak, in line with the literature (~0.6-0.65).
+- **The CNN is near chance** (AUROC 0.50-0.55, C-index 0.52-0.55). The ViT is consistently
+  above it. Radiomics sits between them, best on T2 (0.623 AUROC, 0.567 C-index).
+- **T2 is the most informative sequence** for the ViT and radiomics. ROI pooling helps a
+  little on T2 and T1 (F3 > F1), not on T1GD.
+- **Fusion barely helps:** best is the concat of the four ROI + 10 mm means (0.663), M2
+  (concat ROI means) 0.661 ± 0.003, both level with age; mean fusion (M3) loses, as on
+  BraTS. Fused radiomics 0.600 (concat) / 0.617 (stack).
+- Open question: does imaging add anything over age? Needs age + imaging probes.
+
+<!-- generated: design upenn_* -->
+| ID | upenn_os_flair | upenn_os_fused | upenn_os_t1 | upenn_os_t1gd | upenn_os_t2 |
+|----|---|---|---|---|---|
+| F1 | 0.502 ± 0.038 / 0.619 ± 0.039 | - / - | 0.531 ± 0.026 / 0.630 ± 0.044 | 0.513 ± 0.034 / 0.603 ± 0.032 | 0.547 ± 0.037 / 0.607 ± 0.036 |
+| F2 | 0.501 ± 0.039 / 0.622 ± 0.013 | - / - | 0.532 ± 0.019 / 0.627 ± 0.026 | 0.514 ± 0.032 / 0.581 ± 0.033 | 0.542 ± 0.015 / 0.638 ± 0.037 |
+| F3 | 0.509 ± 0.012 / 0.610 ± 0.023 | - / - | 0.516 ± 0.021 / 0.643 ± 0.022 | 0.515 ± 0.034 / 0.587 ± 0.023 | 0.542 ± 0.010 / 0.655 ± 0.027 |
+| T1 | - / - | - / - | - / - | - / - | - / - |
+| T1-last | - / - | - / - | - / - | - / - | - / - |
+| R1 | 0.569 ± 0.015 | - | 0.536 ± 0.052 | 0.538 ± 0.026 | 0.623 ± 0.030 |
+| M2 | - / - | 0.516 ± 0.017 / 0.661 ± 0.003 | - / - | - / - | - / - |
+| M3 | - / - | 0.505 ± 0.040 / 0.599 ± 0.027 | - / - | - / - | - / - |
+| M4 | - / - | 0.528 ± 0.011 / 0.629 ± 0.052 | - / - | - / - | - / - |
+| ref-age | 0.667 ± 0.031 | - | 0.667 ± 0.031 | 0.667 ± 0.031 | 0.667 ± 0.031 |
+| ref | n/a | n/a | n/a | n/a | n/a |
+<!-- end generated -->
+
+<!-- generated: cindex upenn_* -->
+| ID | upenn_os_flair | upenn_os_t1 | upenn_os_t1gd | upenn_os_t2 |
+|----|---|---|---|---|
+| F1 | 0.523 ± 0.009 / 0.588 ± 0.024 | 0.520 ± 0.025 / 0.589 ± 0.024 | 0.524 ± 0.012 / 0.580 ± 0.017 | 0.554 ± 0.020 / 0.595 ± 0.030 |
+| F2 | 0.521 ± 0.015 / 0.588 ± 0.010 | 0.549 ± 0.025 / 0.598 ± 0.018 | 0.526 ± 0.005 / 0.587 ± 0.014 | 0.542 ± 0.008 / 0.605 ± 0.029 |
+| F3 | 0.524 ± 0.010 / 0.599 ± 0.008 | 0.550 ± 0.019 / 0.595 ± 0.022 | 0.519 ± 0.007 / 0.580 ± 0.018 | 0.536 ± 0.009 / 0.623 ± 0.011 |
+| R1 | 0.544 ± 0.021 | 0.519 ± 0.027 | 0.527 ± 0.021 | 0.567 ± 0.013 |
+| ref-age | 0.619 ± 0.019 | 0.619 ± 0.019 | 0.619 ± 0.019 | 0.619 ± 0.019 |
+<!-- end generated -->
+
+<!-- generated: runs upenn_os_fused -->
+| Run | Design | AUROC |
+|---|---|---|
+| `vit_fused_concat_roi_margin_mean_logreg` |  | 0.663 ± 0.024 |
+| `vit_fused_concat_roi_mean_logreg` | M2 | 0.661 ± 0.003 |
+| `vit_fused_stack_roi_margin_mean_logreg` |  | 0.654 ± 0.042 |
+| `vit_fused_concat_mean_logreg` |  | 0.639 ± 0.043 |
+| `vit_fused_mean_mean_logreg` |  | 0.634 ± 0.034 |
+| `vit_fused_stack_roi_mean_logreg` | M4 | 0.629 ± 0.052 |
+| `vit_fused_stack_mean_logreg` |  | 0.628 ± 0.038 |
+| `vit_fused_mean_roi_margin_mean_logreg` |  | 0.620 ± 0.016 |
+| `radiomics_original_fused_stack_logreg` |  | 0.617 ± 0.039 |
+| `radiomics_original_fused_concat_logreg` |  | 0.600 ± 0.031 |
+| `vit_fused_mean_roi_mean_logreg` | M3 | 0.599 ± 0.027 |
+| `cnn_fused_concat_mean_logreg` |  | 0.536 ± 0.019 |
+| `cnn_fused_mean_mean_logreg` |  | 0.535 ± 0.019 |
+| `cnn_fused_stack_roi_margin_mean_logreg` |  | 0.530 ± 0.014 |
+| `cnn_fused_stack_roi_mean_logreg` | M4 | 0.528 ± 0.011 |
+| `cnn_fused_stack_mean_logreg` |  | 0.520 ± 0.034 |
+| `cnn_fused_concat_roi_mean_logreg` | M2 | 0.516 ± 0.017 |
+| `cnn_fused_mean_roi_margin_mean_logreg` |  | 0.507 ± 0.035 |
+| `cnn_fused_concat_roi_margin_mean_logreg` |  | 0.506 ± 0.026 |
+| `cnn_fused_mean_roi_mean_logreg` | M3 | 0.505 ± 0.040 |
+<!-- end generated -->
+
 ### kits_liver
 
 None yet.
@@ -460,6 +640,30 @@ None yet.
 - Dropped the filtered radiomics set and the R2-R5 rows (D25): `run_probes.sh` now runs
   `original` with the plain L2 probe only (R1). Removed from the backlog with it: the
   filter ablation item. Cached filtered features and past runs are kept.
+- BraTS 2024 post-treatment glioma added (D28), on branch `brats-glioma-type`: four tasks
+  `brats_gbm_<t1c|t1n|t2f|t2w>`, GBM vs astrocytoma/oligodendroglioma, earliest scan per
+  patient, whole tumour (1+2+3) as ROI, site as `group`. 632 patients (384 GBM). Smoke test
+  on 6 cases x 2 sequences: ROI fully inside every crop, ~2 s per case. `openpyxl` added to
+  read the metadata xlsx.
+- BraTS: all 4 sequences prepared on the host (632 cases each, no failures, no case
+  without ROI, ~2.9 GB per task). Probes started.
+- BraTS: frozen probes and radiomics on all 4 sequences. ViT 0.84-0.88 (within-centre
+  0.79-0.83) vs site only 0.667 and radiomics 0.76-0.78; the whole crop is as good as the ROI.
+- This server's `outputs/results/` holds only the BraTS runs (the other tasks ran in another
+  workspace), so only the `brats_*` blocks were regenerated here. A full
+  `table --update` needs all results in one `outputs/`.
+- BraTS: added the age references (D29, `nnfb-predict covariate-baseline`; `brats.py` now
+  writes `age`) and late fusion M2-M4 (D30, `nnfb-features fuse`, results under a fused task
+  name such as `brats_gbm_fused`). Unit-tested on synthetic data; real runs pending on the host.
+- BraTS on the host: labels.csv rewritten with `age` (splits unchanged, same hash), age
+  references and fusion (CNN, ViT, radiomics) run. Age alone 0.772, age + site 0.814; best
+  ViT fused 0.885 (concat, whole crop), 0.844 within-centre (concat, ROI mean). Within the
+  same site and age decade the ROI-pooled ViT keeps ~0.82, the whole-crop ViT drops to ~0.78.
+- UPENN-GBM survival added (D31): four tasks `upenn_os_<seq>`, 452 deceased patients (no
+  censoring), label = 1-year OS (226/226), `time`/`event`/`age` in labels.csv, ROI = expert
+  mask (145) else automatic (307). Cox probes with C-index (D32, `nnfb-cox`,
+  scikit-survival); `run_probes.sh` runs them for tasks with `time`/`event`. Prepare
+  smoke-tested on 4 cases (2 expert, 2 automatic masks): ROI fully inside, ~3 s per case.
 - Added HECKTOR 2022 (D26): training and test pooled for recurrence-free survival, one
   task per modality (`hecktor2022_rfs_ct`, `hecktor2022_rfs_pet`). Checked all 883
   patients: masks on the CT grid (48 with one extra row or slice), PET in SUV, the
@@ -472,3 +676,14 @@ None yet.
   Smoke-tested end to end on 30 cases (CNN on CPU: CUDA does not initialise in the
   container since its restart this morning); the smoke results were deleted.
 
+### 2026-11-19
+- UPENN on the host: all 4 sequences prepared (452 cases, no failures, identical splits),
+  probes, radiomics, age reference, Cox probes and fusion run. Age alone 0.667 AUROC / 0.619
+  C-index; best ViT T2 F3 0.655 / 0.623; CNN near chance; fused concat (M2) 0.661.
+- `nnfb-cox` CLI fixed: a single-command typer app made `probe` an extra argument, so the
+  first `run_probes.sh` pass skipped every Cox probe. A CLI test now covers it.
+- Merged `main` (Valentin: HECKTOR 2022 RFS D26, survival probes D27) into
+  `brats-glioma-type`. Our decisions renumbered D26-D30 -> D28-D32. New D33: survival-only
+  tasks (label = event) get Cox probes in `nnfb-features probe`; tasks with a binary label
+  plus time/event (UPENN) keep logistic probes and get Cox from `nnfb-cox`. BraTS and UPENN
+  tables regenerated with the merged code: same numbers.

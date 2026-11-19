@@ -67,6 +67,62 @@ def test_probe_writes_results_like_finetuned_runs(tmp_path, monkeypatch):
     assert metrics["auroc"] == 1.0 and metrics["n"] == 16
 
 
+def test_stack_scores_learns_which_modality_to_trust():
+    rng = np.random.default_rng(0)
+    y = np.repeat([0, 1], 30)
+    good = np.where(y == 1, 0.8, 0.2) + rng.normal(0, 0.05, 60)
+    noise = rng.uniform(0.1, 0.9, 60)
+    scores = np.column_stack([noise, good]).clip(0.01, 0.99)
+    test = features.stack_scores(scores[::2], y[::2], scores[1::2])
+    assert ((test > 0.5) == y[1::2]).mean() > 0.9
+
+
+def _fusion_fixture(tmp_path, monkeypatch, tasks=("a", "b")):
+    """Two modality tasks of the same 40 cases; only modality "b" carries the label."""
+    from nnfoundation_bench.modeling import runs
+
+    rng = np.random.default_rng(0)
+    cases = [f"c{i:02d}" for i in range(40)]
+    labels = {c: int(i % 2) for i, c in enumerate(cases)}
+    split = {"train": cases[:16], "val": cases[16:24], "test": cases[24:]}
+    for task in tasks:
+        root = tmp_path / "processed" / task
+        (root / "features" / "vit").mkdir(parents=True)
+        (root / "labels.json").write_text(json.dumps(labels))
+        (root / "splits.json").write_text(json.dumps([split]))
+        for c, lab in labels.items():
+            vec = rng.normal(size=4) + (3 * lab if task == "b" else 0)
+            np.savez(root / "features" / "vit" / f"{c}.npz", roi_mean=vec)
+    monkeypatch.setattr(features, "PROCESSED_DATA_DIR", tmp_path / "processed")
+    monkeypatch.setattr(features, "RESULTS_DIR", tmp_path / "results")
+    monkeypatch.setattr(runs, "RESULTS_DIR", tmp_path / "results")
+    monkeypatch.setattr(
+        features, "results_dir", lambda t, run, fold: tmp_path / "results" / t / run / str(fold)
+    )
+
+
+def test_fuse_writes_every_method_under_the_fused_name(tmp_path, monkeypatch):
+    _fusion_fixture(tmp_path, monkeypatch)
+    features.fuse(["a", "b"], name="ab", model="vit", pooling=["roi_mean"], method=None)
+    out = tmp_path / "results" / "ab"
+    assert json.loads((out / "fusion.json").read_text()) == {"tasks": ["a", "b"]}
+    for m in features.FUSIONS:
+        metrics = json.loads((out / f"vit_fused_{m}_roi_mean_logreg/0/metrics.json").read_text())
+        assert metrics["task"] == "ab" and metrics["n"] == 16
+        if m != "mean":  # the mean blurs the informative modality with noise
+            assert metrics["auroc"] > 0.9
+
+
+def test_fuse_refuses_tasks_with_different_splits(tmp_path, monkeypatch):
+    import pytest
+    import typer
+
+    _fusion_fixture(tmp_path, monkeypatch)
+    (tmp_path / "processed" / "b" / "splits.json").write_text("[]")
+    with pytest.raises(typer.Exit):
+        features.fuse(["a", "b"], name="ab", model="vit", pooling=["roi_mean"], method=None)
+
+
 def test_pool_features_per_named_roi():
     import numpy as np
 

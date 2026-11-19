@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Frozen-feature probes (F1-F3, plus F5-F7 on tasks with several named ROIs) and the
-# radiomics baseline (R1) for one prepared task,
-# then the design grid. Meant to run on the host, after `nnfb-data prepare TASK`.
+# radiomics baseline (R1) for one prepared task, confounder references, Cox probes
+# for tasks with a binary label plus time/event (nnfb-cox), then the design grid.
+# Meant to run on the host, after `nnfb-data prepare TASK`.
 #
 #   scripts/run_probes.sh TASK
 #
@@ -55,9 +56,37 @@ for features in $RADIOMICS; do
   uv run nnfb-radiomics probe "$TASK" --features "$features"
 done
 
-# Confounder reference (e.g. centre alone) for tasks whose labels.csv has a group column
-if head -1 "${NNFB_DATA_DIR:-data}/processed/$TASK/labels.csv" | grep -q group; then
+# Confounder references from labels.csv columns: group (e.g. centre) alone, age alone, and
+# age with group (D9, D29).
+has_column() {
+  head -1 "${NNFB_DATA_DIR:-data}/processed/$TASK/labels.csv" | tr , '\n' | grep -qx "$1"
+}
+if has_column group; then
   uv run nnfb-predict group-baseline "$TASK"
+fi
+if has_column age; then
+  uv run nnfb-predict covariate-baseline "$TASK" --column age
+  if has_column group; then
+    uv run nnfb-predict covariate-baseline "$TASK" --column age --column group
+  fi
+fi
+
+# Tasks with a binary label plus time and event (UPENN): Cox probes via nnfb-cox, C-index
+# (D32). Survival-only tasks (label = event, D27) got their Cox probes above (D33).
+survival_only() {
+  uv run python -c "import sys; from nnfoundation_bench.modeling.survival import is_survival; sys.exit(0 if is_survival('$TASK') else 1)"
+}
+if has_column time && has_column event && ! survival_only; then
+  echo "== Cox probes (C-index)"
+  for model in $MODELS; do
+    uv run nnfb-cox probe "$TASK" --model "$model"
+  done
+  if [[ " $RADIOMICS " == *" original "* ]]; then
+    uv run nnfb-cox probe "$TASK" --model radiomics
+  fi
+  if has_column age; then
+    uv run nnfb-cox probe "$TASK" --model covariates --column age
+  fi
 fi
 
 echo "== Design grid"

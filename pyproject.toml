@@ -15,6 +15,7 @@ dependencies = [
     "loguru",
     "numpy",
     "okapy",
+    "openpyxl>=3.1.5",
     "pandas",
     "pyradiomics",
     "requests",
@@ -51,6 +52,8 @@ nnfb-train = "nnfoundation_bench.modeling.train:app"
 nnfb-predict = "nnfoundation_bench.modeling.predict:app"
 nnfb-features = "nnfoundation_bench.modeling.features:app"
 nnfb-radiomics = "nnfoundation_bench.modeling.radiomics_baseline:app"
+nnfb-cox = "nnfoundation_bench.modeling.cox_probe:app"
+nfb-cox = "nnfoundation_bench.modeling.cox_probe:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["nnfoundation_bench"]

@@ -53,6 +53,14 @@ code skips work that is already done.
 - `uv run nnfb-predict predict <task> --model ... --fold k` and `uv run nnfb-predict summarize <task>`
 - `uv run nnfb-predict group-baseline <task>`: reference run `group_prior` that predicts from the
   `group` column alone (HECKTOR: centre). Always compare model AUROC against it.
+- `uv run nnfb-predict covariate-baseline <task> --column age [--column group]`: reference runs
+  from `labels.csv` covariates alone (`covariates_<cols>_logreg`, rows `ref-age`, `ref-age+site`, D29).
+- `uv run nnfb-features fuse <task>... --name <fused> --model cnn|vit|radiomics`: late fusion
+  (concat, mean, stack; D30) of single-modality tasks with identical labels and splits.
+  Results go to `outputs/results/<fused>/`; `fusion.json` names the sources.
+- `uv run nnfb-cox probe <task> --model cnn|vit|radiomics|covariates`: ridge Cox probe per fold
+  for survival tasks (`time`, `event` in labels.csv), test C-index (D32). Runs `*_cox`; grid
+  in `<!-- generated: cindex <tasks> -->` blocks.
 - `uv run nnfb-features extract <task> --model cnn|vit` then `probe <task> --model ...`:
   frozen-encoder features mean-pooled over the whole crop, the ROI and the ROI + 10 mm, and a
   logistic-regression probe per fold. Runs are named `<model>_frozen_<pooling>_logreg`.

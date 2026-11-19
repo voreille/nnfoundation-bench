@@ -1,29 +1,37 @@
 """Survival tasks: Cox probe and C-index (scikit-survival), D27.
 
 A task is a survival task when its ``labels.csv`` has ``time`` and ``event`` columns
-(e.g. HECKTOR 2022 RFS). Its probes are ridge Cox models instead of logistic regressions,
-its runs end in ``_cox`` instead of ``_logreg``, and its metric is Harrell's C-index
-(``cindex`` in metrics.json) instead of AUROC. ``label`` (= event) is still used to
-stratify the splits.
+and ``label`` is the event itself (e.g. HECKTOR 2022 RFS). Its probes are ridge Cox models
+instead of logistic regressions, its runs end in ``_cox`` instead of ``_logreg``, and its
+metric is Harrell's C-index (``cindex`` in metrics.json) instead of AUROC. ``label``
+(= event) is still used to stratify the splits.
+
+Tasks with ``time``/``event`` *and* their own binary label (UPENN: survived 1 year, D31)
+are classification tasks here: their probes stay logistic (AUROC on the label), and their
+Cox models come from ``nnfb-cox`` (``cox_probe.py``, D32). See D33.
 """
 
 import numpy as np
 import pandas as pd
 
 from nnfoundation_bench.config import PROCESSED_DATA_DIR
+from nnfoundation_bench.modeling.runs import processed_task
 
 # Ridge penalties tried on the validation split (features are standardised).
 COX_ALPHAS = tuple(10.0**k for k in range(-1, 6))
 
 
 def survival_table(task: str) -> pd.DataFrame | None:
-    """``case_id``-indexed ``time``/``event`` of a survival task, None for other tasks."""
-    path = PROCESSED_DATA_DIR / task / "labels.csv"
+    """``case_id``-indexed ``time``/``event`` of a survival task, None for other tasks
+    (no ``time``/``event``, or a binary ``label`` of its own besides them, D33)."""
+    path = PROCESSED_DATA_DIR / processed_task(task) / "labels.csv"
     if not path.exists():
         return None
     labels = pd.read_csv(path, dtype={"case_id": str})
     if not {"time", "event"} <= set(labels.columns):
         return None
+    if "label" in labels and not labels["label"].astype(int).equals(labels["event"].astype(int)):
+        return None  # the label is a target of its own (e.g. 1-year survival)
     return labels.set_index("case_id")[["time", "event"]]
 
 

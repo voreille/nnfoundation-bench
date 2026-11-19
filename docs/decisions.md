@@ -475,3 +475,153 @@ Supersedes the R2-R5 rows of D21 and D22; R1 (107 original-image features, L2 pr
   - Missing ROI (18% no GTVn, 6% no GTVp) imputed with the train median in F5-F7; an
     indicator feature could carry "no nodes", which is prognostic.
   - Per-ROI radiomics (GTVp, GTVn, concatenated) not done yet.
+
+## D28. BraTS 2024 post-treatment glioma: GBM vs astrocytoma/oligodendroglioma, one task per sequence (active, 2026-11-18)
+- **Fact:** the BraTS 2024 adult glioma release (Synapse, registration-gated, placed by hand
+  on the NAS, `data/raw/BraTS_Glioma_synapse/`) has 1809 post-treatment scans of 818
+  patients from 5 sites (UCSF, UCSD, Duke, Missouri, Indiana). Each scan has t1c, t1n, t2f
+  and t2w, co-registered and skull-stripped on one 182 x 218 x 182 grid at 1 mm. The 1621
+  training scans (731 patients) have a segmentation: 1 non-enhancing core, 2 edema (SNFH),
+  3 enhancing tumour, 4 resection cavity. The 188 validation scans have none. The metadata
+  xlsx (sheet `Individual Data`) gives `Site` and `Glioma type` for every scan. Patients have
+  1-10 timepoints (`-100`, `-101`, ...).
+- **Choice:**
+  - Four tasks `brats_gbm_<t1c|t1n|t2f|t2w>`, single-channel, identical labels and splits,
+    so late fusion (D14) applies.
+  - Target (ASSUMPTION, BraTS is not in the paper): glioblastoma (1) vs astrocytoma or
+    oligodendroglioma (0), roughly IDH-wildtype vs IDH-mutant under WHO 2021. "Glioma NOS"
+    (85 patients, 76 of them from UCSF) and "Other" (14) are excluded. "glioma NOS" and
+    "Glioma NOS" are the same class.
+  - One scan per patient: the earliest timepoint with a segmentation (728 of 731 are
+    `-100`). 632 patients remain: 384 GBM, 248 not.
+  - ROI = whole tumour, labels 1+2+3 (`require_roi=True`). Pad value 0 (background).
+  - `group` = site, `stratum` = site x label, as for HECKTOR (D9); within-centre AUROC (D24)
+    applies. GBM share by site: Indiana 14/14, Duke 95/135, Missouri 84/116, UCSD
+    111/158, UCSF 80/209.
+- **Why:** BraTS ships expert 3D tumour masks for every training scan (D6), it is large, and
+  it adds brain MR, which no other task covers.
+- **Rejected:**
+  - Keeping NOS and Other as negatives: NOS is an undetermined type, almost all from one
+    site, so it would add a centre shortcut to the negative class.
+  - All timepoints with patient-grouped splits: needs changes to the shared split code and a
+    per-patient metric, and later timepoints of one patient are strongly correlated.
+  - Tumour core (1+3) as ROI: empty in 392 of 1621 scans after resection. Including the
+    cavity (4): it reflects treatment, not the tumour.
+  - The validation folder: it has no segmentation.
+- **Note:** the whole brain nearly fits in 192³, but the crop is centred on the tumour and
+  the brain is 218 mm front to back, so up to ~20% of the brain can fall outside the crop
+  (checked on 6 cases; the ROI is always fully inside). The whole-scan z-score includes the
+  ~82% zero background, as with every other task (D3).
+- **Open:** a brain-centred crop (whole brain in view) as an input-size variant. Whether the
+  site confound dominates as on HECKTOR: read plain and within-centre AUROC together.
+
+
+## D29. Covariate references: age alone, and age with centre (active, 2026-11-18)
+Extends D9 (centre-only reference).
+- **Choice:** `nnfb-predict covariate-baseline <task> --column age [--column group]` fits the
+  frozen-feature probe (D13: L2 logistic regression, balanced classes, C on val, same splits)
+  on `labels.csv` columns only. Numeric columns are used as they are (missing values get the
+  train median), others are one-hot encoded. Runs `covariates_<columns>_logreg`; design rows
+  `ref-age` and `ref-age+site`. `run_probes.sh` runs both when `labels.csv` has an `age`
+  column. BraTS writes `age` (at the chosen scan, missing for a few patients).
+- **Why:** on BraTS the whole-crop embedding is as good as the tumour ROI, and the crop shows
+  most of the brain. Age is visible there (atrophy, ventricles) and differs strongly between
+  GBM and IDH-mutant gliomas. The centre-only `ref` does not capture this; an age reference
+  says how much of the image AUROC age alone explains. Within-centre AUROC of `ref-age+site`
+  is that of age alone, since the centre term is constant within a centre.
+- **Rejected:** a raw age score without fitting: the probe gives the same ranking for one
+  column but also handles missing ages and several columns the same way as the other rows.
+- **Open:** subtracting age from the features (or adding it to the probe) to measure
+  imaging signal beyond age.
+
+## D30. Late fusion across modalities: concatenation, mean, score stacking (active, 2026-11-18)
+Implements M2-M4 of D14.
+- **Choice:** `nnfb-features fuse <task>... --name <fused> --model cnn|vit|radiomics` reads the
+  cached pooled features of single-modality tasks with identical `labels.json` and
+  `splits.json` (checked) and writes results under `outputs/results/<fused>/`, with
+  `fusion.json` naming the sources. A fused task has no data folder; its labels, splits
+  and groups are read from the first source, so `group-baseline`, `covariate-baseline`,
+  within-centre AUROC and the generated tables work on it.
+  - M2 `concat`: embeddings concatenated, one probe.
+  - M3 `mean`: mean of the embeddings (one encoder, one space), one probe. Not for
+    radiomics (different statistics per modality).
+  - M4 `stack`: one probe per modality (train, C on val), then a logistic regression on
+    their val score logits, applied to test. Val both picks C and fits the stacker.
+  - Every pooling is run; the design grid shows the ROI mean (F2), the per-task runs
+    table shows all. Radiomics: `radiomics_original_fused_<concat|stack>_logreg`.
+- **Why:** per-modality embeddings are what the pipeline caches (D14), so fusion is a
+  probe on cached features: minutes, no GPU. One fused name per task family keeps fusion
+  results next to the single-modality ones.
+- **Rejected:** writing fused runs into one of the source tasks' result folders (they would
+  mix with single-modality rows), and a separate data folder per fusion (duplicate labels).
+- **Open:** M4's stacker is fitted on val only (64 cases on BraTS, 50 on LLD-MMRI); on small
+  tasks (HECKTOR, 10 val cases) it will be noisy. M5 (learned attention) still planned.
+
+## D31. UPENN-GBM overall survival: 1-year label plus time/event, one task per sequence (active, 2026-11-18)
+- **Fact:** UPENN-GBM (TCIA NIfTI release on the NAS, `data/raw/UPENN_GBM/`) has pre-operative
+  studies `UPENN-GBM-<n>_11` with T1, T1GD, T2 and FLAIR in the BraTS 2021 layout (240 x 240 x
+  155 at 1 mm, skull-stripped), expert-corrected tumour masks for some studies and automatic
+  masks for all (labels 1 necrosis, 2 edema, 4 enhancing). The survival labels are a
+  QuantImage2 export placed by hand in `data/raw/GBM-UPENN-OS/`: `outcome_QI_UPENN_os.csv`
+  (452 patients, `Time` in days, `Event`) and the clinical variables (age, IDH, MGMT,
+  resection). **Every patient has `Event = 1`**: the file holds deceased patients only, with
+  no censoring. Median survival 366 days.
+- **Choice:**
+  - Four tasks `upenn_os_<t1|t1gd|t2|flair>`, single-channel, identical labels and splits
+    (late fusion applies, D30). All 452 patients of the outcome file, pre-operative study.
+  - `label` = survived at least 365 days (226 / 226). ASSUMPTION, our binary view, so prepare,
+    the AUROC probes, radiomics and the tables work unchanged. `labels.csv` also keeps `time`,
+    `event` and `age` for the Cox probes (D32) and the age reference (D29).
+  - ROI = whole tumour (1+2+4): the expert-corrected mask where it exists (145 patients),
+    otherwise the automatic one (307). `mask_source` is recorded per case. Dice 0.94 between
+    the two on a checked case.
+  - Single centre: no `group`; splits stratify on the 1-year label.
+- **Why:** the user's target pipeline needs survival; UPENN is the largest cohort we have
+  with masks and survival, and pre-operative scans are the right input for prognosis.
+- **Rejected:** automatic masks for all (one source, but worse where an expert mask exists);
+  waiting for a survival-only pipeline before preparing (the crops do not depend on it).
+- **Open:** without censoring the cohort leaves out patients still alive, so long survivors
+  are under-represented. The user mentioned 416 studies; the file has 452 (all used).
+
+## D32. Cox probes with Harrell's C-index (active, 2026-11-18)
+- **Choice:** `nnfb-cox probe <task> --model cnn|vit|radiomics|covariates` fits, per fold, a
+  ridge Cox model (scikit-survival `CoxPHSurvivalAnalysis`) on the same cached features and
+  splits as the AUROC probes: median imputation, standardisation on train, ridge alpha from
+  1e-1 to 1e5 chosen by val C-index (as C is for the logistic probe). Test metric: Harrell's
+  C-index. Runs `<model>_frozen_<pooling>_cox`, `radiomics_original_cox`,
+  `covariates_age_cox`; metrics.json holds `cindex`, predictions.csv `time, event, risk`.
+  A `<!-- generated: cindex [patterns] -->` block gives the grid (rows F1-F3, R1, ref-age).
+  The AUROC tables skip Cox runs. `run_probes.sh` runs the Cox probes when labels.csv has
+  `time` and `event`. Dependency: scikit-survival 0.28 (adds ecos, osqp, numexpr; no version
+  change to existing packages).
+- **Why:** the user asked for C-index now rather than waiting for Valentin's survival code.
+  Ridge Cox is the survival analogue of the L2 logistic probe, so rows stay comparable.
+- **Rejected:** writing our own partial-likelihood fit (scikit-survival is the standard,
+  tested one); Uno's C (no censoring on UPENN, so Harrell's C is unbiased here).
+- **Open:** align with Valentin's `modeling/survival.py` when it is pushed (named
+  `cox_probe.py` / `nnfb-cox` here to avoid a merge clash). Fine-tuning for survival is not
+  covered (glovita trains classifiers only).
+
+## D33. Survival-only tasks vs tasks with a binary label plus time/event (active, 2026-11-19)
+Merges D27 (Valentin: survival probes in `nnfb-features probe`) with D31/D32 (ours: UPENN
+1-year label, `nnfb-cox`).
+- **Choice:**
+  - A task is *survival-only* when `labels.csv` has `time` and `event` **and** `label`
+    equals `event` (HECKTOR 2022 RFS, D26). D27 applies: `nnfb-features probe`,
+    `nnfb-radiomics probe`, `covariate-baseline` and `group-baseline` fit Cox models, runs
+    end in `_cox`, the design grids show the C-index (`survival.is_survival`).
+  - A task with `time`/`event` **and** a binary label of its own (UPENN, label = survived 1
+    year, D31) stays a classification task: logistic probes, AUROC grids. Its Cox models
+    come from `nnfb-cox` (D32) and show in `<!-- generated: cindex -->` grids.
+  - `nnfb-cox` refuses survival-only tasks (their Cox runs already exist under the same
+    names); `run_probes.sh` calls it only for the second kind.
+- **Why:** both designs are wanted: the C-index alone for HECKTOR RFS, AUROC on a clinical
+  horizon plus the C-index for UPENN. A rule on the data keeps every task as it is.
+- **Rejected:** a flag on the task definition (fused tasks have no definition of their
+  own; the labels.csv rule works for them through `processed_task`); merging `cox_probe.py`
+  into `survival.py` now (same model and C-index; left for a follow-up to keep the merge
+  small).
+- **Open:** two Cox implementations (`survival.fit_cox_probe`, `cox_probe.fit_cox`) with
+  the same pipeline and alphas; fold them into one. Fused survival-only tasks get `_logreg`
+  run names from `nnfb-features fuse` although their probe is Cox.
+
