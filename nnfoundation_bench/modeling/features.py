@@ -9,7 +9,9 @@ features of several single-modality tasks of the same cases (late fusion, D14, D
 
 The encoder is built with glovita's ``nnFoundationEncoder`` (same weights and
 architecture as fine-tuning). glovita's head sees the mean of this feature map
-(``mean`` below); the other poolings are what we compare against it.
+(``mean`` below); the other poolings are what we compare against it. The 2D baselines
+(``dinov2``, ``dinov2_3p``, D38) run slice by slice on the QC crops instead
+(``slice_features``) and are pooled and probed the same way.
 """
 
 import json
@@ -22,10 +24,11 @@ import typer
 from loguru import logger
 from tqdm import tqdm
 
-from nnfoundation_bench.config import CROP_SIZE, PROCESSED_DATA_DIR, RESULTS_DIR
+from nnfoundation_bench.config import CROP_SIZE, INTERIM_DATA_DIR, PROCESSED_DATA_DIR, RESULTS_DIR
 from nnfoundation_bench.datasets import get_task
 from nnfoundation_bench.modeling.predict import binary_metrics
 from nnfoundation_bench.modeling.runs import processed_task, results_dir
+from nnfoundation_bench.modeling.slice_features import SLICE_ENCODERS
 from nnfoundation_bench.modeling.survival import (
     fit_cox_probe,
     probe_kind,
@@ -35,6 +38,9 @@ from nnfoundation_bench.modeling.survival import (
 from nnfoundation_bench.weights import MODELS, get_checkpoint
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
+
+# Frozen encoders: nnFoundation (3D) and the slice-wise 2D baselines (D38).
+FEATURE_MODELS = (*MODELS, *SLICE_ENCODERS)
 
 # ROI dilation for ``roi_margin_*`` poolings, in mm (= voxels at 1 mm).
 ROI_MARGIN_MM = 10.0
@@ -150,10 +156,24 @@ def _read_b2nd(path: Path) -> np.ndarray:
     return blosc2.open(str(path), mode="r")[...]
 
 
+def _slice_map(task: str, case: str, encoder, planes, device: str, shape) -> np.ndarray:
+    """Slice-wise 2D feature map of one case, from its QC crop in HU / SUV / MR units
+    (the z-scored arrays lose the absolute scale the CT and PET windows need)."""
+    import SimpleITK as sitk
+
+    from nnfoundation_bench.modeling.slice_features import slice_feature_map, to_unit
+
+    path = INTERIM_DATA_DIR / processed_task(task) / "images" / f"{case}.nii.gz"
+    crop = sitk.GetArrayFromImage(sitk.ReadImage(path))
+    if crop.shape != tuple(shape):
+        raise ValueError(f"{case}: QC crop {crop.shape} is not on the mask grid {shape}")
+    return slice_feature_map(encoder, to_unit(crop, get_task(task).modality), planes, device)
+
+
 @app.command()
 def extract(
     task: str,
-    model: str = typer.Option("cnn", help=f"Pretrained model: {', '.join(MODELS)}"),
+    model: str = typer.Option("cnn", help=f"Pretrained model: {', '.join(FEATURE_MODELS)}"),
     device: str = typer.Option("cuda:0", help="Torch device"),
     save_maps: bool = typer.Option(
         False, help="Also save the full feature map (float16; ViT ~29 MB per case)"
@@ -173,12 +193,23 @@ def extract(
         return
 
     roi_names = get_task(task).roi_names
-    encoder = build_encoder(model, device)
+    slice_encoder = SLICE_ENCODERS.get(model)
+    if slice_encoder:
+        from nnfoundation_bench.modeling import slice_features
+
+        encoder = slice_features.build_slice_encoder(model, device)
+        checkpoint = slice_features.checkpoint(model)
+    else:
+        encoder = build_encoder(model, device)
+        checkpoint = MODELS[model].repo + "@" + MODELS[model].revision
     for case in tqdm(todo, desc=f"{task} {model}"):
-        image = torch.from_numpy(_read_b2nd(root / "images" / f"{case}.b2nd"))[None]
         mask = _read_b2nd(root / "masks" / f"{case}.b2nd")[0]
-        with torch.no_grad(), torch.autocast(torch.device(device).type, dtype=torch.bfloat16):
-            fmap = feature_map(encoder, image.to(device)).float()[0].cpu().numpy()
+        if slice_encoder:
+            fmap = _slice_map(task, case, encoder, slice_encoder.planes, device, mask.shape)
+        else:
+            image = torch.from_numpy(_read_b2nd(root / "images" / f"{case}.b2nd"))[None]
+            with torch.no_grad(), torch.autocast(torch.device(device).type, dtype=torch.bfloat16):
+                fmap = feature_map(encoder, image.to(device)).float()[0].cpu().numpy()
         arrays = pool_features(fmap, mask, roi_names)
         if save_maps:
             arrays["map"] = fmap.astype(np.float16)
@@ -189,7 +220,7 @@ def extract(
         json.dumps(
             {
                 "model": model,
-                "checkpoint": MODELS[model].repo + "@" + MODELS[model].revision,
+                "checkpoint": checkpoint,
                 "feature_dim": int(fmap.shape[0]),
                 "grid": list(fmap.shape[1:]),
                 "poolings": [p for p in task_poolings(task) if p != CONCAT_POOLING],
@@ -341,7 +372,7 @@ def save_fold(task, run, fold, cases, labels, scores, info: dict) -> float:
 @app.command()
 def probe(
     task: str,
-    model: str = typer.Option("cnn", help=f"Pretrained model: {', '.join(MODELS)}"),
+    model: str = typer.Option("cnn", help=f"Pretrained model: {', '.join(FEATURE_MODELS)}"),
     pooling: Annotated[
         list[str] | None, typer.Option(help="Poolings to probe (default: all)")
     ] = None,
@@ -415,7 +446,9 @@ def stack_folds(task: str, run: str, xs: list[np.ndarray]) -> list[float]:
 def fuse(
     tasks: Annotated[list[str], typer.Argument(help="Single-modality tasks of the same cases")],
     name: str = typer.Option(..., help="Name of the fused task in outputs/results/"),
-    model: str = typer.Option("vit", help=f"{', '.join(MODELS)} or radiomics (original set)"),
+    model: str = typer.Option(
+        "vit", help=f"{', '.join(FEATURE_MODELS)} or radiomics (original set)"
+    ),
     pooling: Annotated[
         list[str] | None, typer.Option(help="Poolings to fuse (default: all; not radiomics)")
     ] = None,
@@ -522,7 +555,9 @@ def combine_folds(task: str, run: str, x_image: np.ndarray, x_cov: np.ndarray) -
 @app.command()
 def combine(
     task: str,
-    model: str = typer.Option("vit", help=f"{', '.join(MODELS)} or radiomics (original set)"),
+    model: str = typer.Option(
+        "vit", help=f"{', '.join(FEATURE_MODELS)} or radiomics (original set)"
+    ),
     pooling: Annotated[
         list[str] | None, typer.Option(help="Poolings (default: all; not radiomics)")
     ] = None,

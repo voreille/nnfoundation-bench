@@ -718,3 +718,36 @@ Merges D27 (Valentin: survival probes in `nnfb-features probe`) with D31/D32 (ou
   would be the uncertainty to report. Val is 20% of the training cohort (~90 patients for
   the 2-year variant), so hyperparameters are picked on more cases than in the repeated
   splits.
+
+## D38. 2D natural-image baseline: DINOv2 slice by slice, pooled in the ROI (active, 2026-11-25)
+- **Choice:**
+  - Encoder: DINOv2 ViT-L/14 with registers (`facebook/dinov2-with-registers-large`,
+    pinned revision), frozen. DINOv3 ViT-L/16 was the first choice (same size range as the
+    nnFoundation ViT, better dense features) but its weights are gated and our access
+    request is pending; it becomes B7.
+  - Input: the QC crop (192³ at 1 mm, HU / SUV / MR units, not the z-scored array) mapped
+    to [0, 1]: CT soft-tissue window W400/L40 (-160 to 240 HU), PET SUV 0-20 (HECKTOR 2022
+    tumour SUVmax 10-19), MR 0.5-99.5 percentiles of the volume. ASSUMPTION. Each slice is
+    resized to 336 px (24 x 24 patches, one token per 8 mm in-plane, the nnFoundation ViT
+    token size), copied to 3 channels and ImageNet-normalised.
+  - Features: last-layer patch tokens (CLS and registers dropped), stacked along the
+    slice axis. `dinov2`: axial only, map (1024, 192, 24, 24). `dinov2_3p`: axial,
+    coronal and sagittal, each averaged over blocks of 8 slices to 24³ and the three
+    averaged per cell, map (1024, 24, 24, 24).
+  - Pooling and probes unchanged (`pool_features`, logistic or Cox probe), so the rows
+    B1-B6 compare with F1-F3 one to one. Code: `modeling/slice_features.py`,
+    `nnfb-features extract --model dinov2|dinov2_3p`.
+- **Why:** a strong general-purpose 2D model is the obvious baseline for a 3D medical
+  foundation model: if it matches nnFoundation in the ROI, 3D pretraining on medical data
+  is not what makes the features work. Slice-wise inference plus ROI pooling needs no
+  training and reuses the whole pipeline. Three planes are the cheapest way to give a 2D
+  model 3D context.
+- **Rejected:** the CLS token per slice (a global summary of the slice, not of the ROI;
+  could be a later row); neighbouring slices as RGB channels (breaks the RGB statistics
+  the model was trained on; a later row if B1-B6 are close to F1-F3); upsampling slices
+  more (512+ px: finer tokens, 2-3x the cost; a sweep if small ROIs such as GTVn do
+  badly); fine-tuning or LoRA (not a frozen baseline).
+- **Open:** one fixed window per modality (a multi-window RGB for CT could help);
+  DINOv2 was trained at 518 px with patch 14 and runs here at 336 px (position embeddings
+  interpolated); pooling is over the axial map at full z resolution for `dinov2`, so a ROI
+  cell is 1 x 8 x 8 mm there and 8 mm³ for `dinov2_3p`.

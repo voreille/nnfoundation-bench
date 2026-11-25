@@ -238,6 +238,13 @@ DESIGN_RUNS = {
     # R2-R5 (filtered set, correlation filter, elastic net) were dropped (D25); their past
     # runs still show in the runs tables.
     "R1": lambda p: f"radiomics_original_{p}",
+    # 2D natural-image baseline, DINOv2 ViT-L/14 slice by slice (D38): axial slices (B1-B3),
+    # axial + coronal + sagittal averaged on a 24^3 grid (B4-B6); same poolings as F1-F3.
+    **{
+        f"B{i + 3 * k}": (lambda p, m=m, pool=pool: f"{m}_frozen_{pool}_{p}")
+        for k, m in enumerate(("dinov2", "dinov2_3p"))
+        for i, pool in enumerate(("mean", "roi_mean", "roi_margin_mean"), start=1)
+    },
     # Late fusion of per-modality ROI-mean embeddings (D14, D30), on a fused task
     # (``nnfb-features fuse``): concatenation, mean, score stacking on val.
     "M2": lambda m, p: f"{m}_fused_concat_roi_mean_{p}",
@@ -249,6 +256,11 @@ DESIGN_RUNS = {
     "ref-age+site": lambda p: f"covariates_age_group_{p}",
     "ref-age+hpv": lambda p: f"covariates_age_hpv_{p}",
 }
+
+
+def model_independent(run) -> bool:
+    """Design row taking only the probe kind (one value per cell, e.g. radiomics)."""
+    return run.__code__.co_argcount - len(run.__defaults__ or ()) == 1
 
 
 def metric_key(task: str) -> str:
@@ -339,7 +351,7 @@ def design_table(
     titles = [headers.get(t, t) for t in summaries]
     lines = ["| ID | " + " | ".join(titles) + " |", "|----|" + "---|" * len(summaries)]
     for design, run in (designs or DESIGN_RUNS).items():
-        single = run.__code__.co_argcount == 1
+        single = model_independent(run)
         cells, found = [], False
         for task, s in summaries.items():
             p = kinds.get(task, "logreg")
@@ -362,6 +374,11 @@ COX_DESIGN_RUNS = {
     "F2": lambda m, p: f"{m}_frozen_roi_mean_cox",
     "F3": lambda m, p: f"{m}_frozen_roi_margin_mean_cox",
     "R1": lambda p: "radiomics_original_cox",
+    **{
+        f"B{i + 3 * k}": (lambda p, m=m, pool=pool: f"{m}_frozen_{pool}_cox")
+        for k, m in enumerate(("dinov2", "dinov2_3p"))
+        for i, pool in enumerate(("mean", "roi_mean", "roi_margin_mean"), start=1)
+    },
     "ref-age": lambda p: "covariates_age_cox",
     "ref-age+hpv": lambda p: "covariates_age_hpv_cox",
     "ref-site": lambda p: "covariates_group_cox",
@@ -451,7 +468,7 @@ def design_ids(models: tuple[str, ...] = ("cnn", "vit"), kind: str = "logreg") -
     """Run name -> design ID (``F1``...), plus ``ref`` for ``group_prior``."""
     ids = {"group_prior": "ref"}
     for design, run in DESIGN_RUNS.items():
-        single = run.__code__.co_argcount == 1
+        single = model_independent(run)
         for name in [run(kind)] if single else [run(m, kind) for m in models]:
             ids[name] = design
     return ids

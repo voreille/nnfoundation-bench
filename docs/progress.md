@@ -53,6 +53,11 @@ Next steps:
 10. KiTS Liver full run (background, paper reproduction).
 11. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
    "pathology"). Each task needs about 12 GB in `data/processed`. See D12.
+12. 2D baseline DINOv2 slice by slice (B1-B6, D38, branch `dinov2-2d-baseline`): code
+   done, smoke-tested on 3 HECKTOR HPV cases (0.7 s per case axial, 1.1 s with 3 planes,
+   2.4 GB GPU). On the host, for a prepared task:
+   `MODELS="dinov2 dinov2_3p" RADIOMICS="" scripts/run_probes.sh <task>`.
+   Then DINOv3 (B7) once the gated weights are granted.
 
 ## Backlog
 
@@ -144,6 +149,13 @@ runs stay in the per-task runs tables).
 | R3 | Baseline (handcrafted) | R2 features, redundant ones dropped per fold (Spearman \|rho\| > 0.9, fit on train; ~305 of 1037 kept), L2 probe (D22) | `radiomics_filtered_corr0.9_logreg` | MRNet n/a (no ROI) | dropped (D25) |
 | R4 | Baseline (handcrafted) | R2 features, elastic-net probe (L1 share 0.1/0.5/0.9 and C chosen on val) | `radiomics_filtered_enet` | MRNet n/a (no ROI) | dropped (D25) |
 | R5 | Baseline (handcrafted) | Correlation filter (R3) then elastic net (R4) | `radiomics_filtered_corr0.9_enet` | MRNet n/a (no ROI) | dropped (D25) |
+| B1 | Baseline (2D, natural images) | DINOv2 ViT-L/14 with registers (frozen), each axial slice of the crop windowed to [0, 1] (CT W400/L40, PET SUV 0-20, MR percentiles), resized to 336 px, 3 channels; patch tokens stacked into a (1024, 192, 24, 24) map; mean over the whole crop (D38); one value per cell | `dinov2_frozen_mean_<p>` | all | ready |
+| B2 | Baseline (2D, natural images) | B1, mean over the ROI (as F2) | `dinov2_frozen_roi_mean_<p>` | MRNet n/a | ready |
+| B3 | Baseline (2D, natural images) | B1, mean over the ROI + 10 mm (as F3) | `dinov2_frozen_roi_margin_mean_<p>` | MRNet n/a | ready |
+| B4 | Baseline (2D, 3 planes) | B1 on axial, coronal and sagittal slices, each plane averaged to 24³ then the three averaged per cell (2.5D); whole crop | `dinov2_3p_frozen_mean_<p>` | all | ready |
+| B5 | Baseline (2D, 3 planes) | B4, mean over the ROI | `dinov2_3p_frozen_roi_mean_<p>` | MRNet n/a | ready |
+| B6 | Baseline (2D, 3 planes) | B4, mean over the ROI + 10 mm | `dinov2_3p_frozen_roi_margin_mean_<p>` | MRNet n/a | ready |
+| B7 | Baseline (2D) | DINOv3 ViT-L/16 in place of DINOv2 (access to the gated weights pending) |  | all | planned |
 | S1 | Input size | Fixed 192³ at 1 mm (current preprocessing; same as F1-F3) | see F1-F3 | all | ready |
 | S2 | Input size | Native 1 mm, input size = FOV; ViT absolute position embedding interpolated (glovita default) |  | all | planned |
 | S3 | Input size | Same as S2, but the ViT absolute position embedding is cut out (FOV < 192) instead of interpolated, consistent with RoPE; CNN n/a |  | all | planned |
@@ -1033,3 +1045,8 @@ None yet.
 - Note: `table --update` rebuilds every block from the local `outputs/results/`, which
   holds only the results run on this machine; run it where all results are (or copy them
   over first), or it empties the other tables.
+- 2D natural-image baseline (D38, branch `dinov2-2d-baseline`): DINOv3 ViT-L/16 is gated
+  and our access request is pending, so DINOv2 ViT-L/14 with registers first (not gated,
+  pinned). `nnfb-features extract --model dinov2|dinov2_3p` runs it slice by slice on the
+  QC crops (HU / SUV), the existing poolings and probes apply; design rows B1-B6.
+  Smoke-tested on 3 HECKTOR HPV cases on the GPU (claude-box CUDA works again).

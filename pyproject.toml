@@ -26,6 +26,7 @@ dependencies = [
     "torchvision",
     "totalsegmentator>=2.4",
     "tqdm",
+    "transformers>=5.22",
     "typer",
 ]
 
