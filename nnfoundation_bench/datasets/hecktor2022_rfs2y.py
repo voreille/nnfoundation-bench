@@ -113,7 +113,8 @@ def rfs_labels(
     status and are dropped (also from the Cox probes, so both use one cohort). ``time``
     (days) and ``event`` (1 = recurrence) feed the Cox probes (D32). ``age`` and ``hpv``
     (NaN when unknown) are the clinical covariates. ``group`` = centre, ``stratum`` =
-    centre x label; ``cohort`` = the challenge's train/test set (kept for reference only).
+    centre x label; ``official_split`` = the challenge's train/test set (the single fold of
+    the ``_official`` tasks, D37; the repeated splits ignore it).
     """
     clin = clinical.drop_duplicates("PatientID").set_index("PatientID")
     time, event = endpoint["RFS"].astype(float), endpoint["Relapse"].astype(int)
@@ -129,7 +130,7 @@ def rfs_labels(
             "event": e["Relapse"].astype(int),
             "age": pd.to_numeric(e["PatientID"].map(clin["Age"]), errors="coerce"),
             "hpv": pd.to_numeric(e["PatientID"].map(clin[HPV_COLUMN]), errors="coerce"),
-            "cohort": e["cohort"],
+            "official_split": e["cohort"],
         }
     )
     labels["group"] = labels["case_id"].str.split("-").str[0]  # centre

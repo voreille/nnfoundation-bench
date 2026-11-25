@@ -172,3 +172,12 @@ def test_fused_task_reads_labels_of_its_first_source(tmp_path, monkeypatch):
     (tmp_path / "fused" / "fusion.json").write_text(json.dumps({"tasks": ["a", "b"]}))
     assert runs.fusion_sources("fused") == ["a", "b"]
     assert runs.processed_task("fused") == "a"
+
+
+def test_single_fold_cell_has_no_std():
+    import pandas as pd
+
+    from nnfoundation_bench.modeling.predict import format_auroc
+
+    row = pd.Series({"mean": 0.6543, "std": float("nan"), "count": 1})
+    assert format_auroc(row) == "0.654 (n=1)"

@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pandas as pd
@@ -56,3 +56,18 @@ class ClassificationTask:
     # Image values below this are set to it before z-scoring (e.g. CT scanner padding far
     # below air, D19). None: no clamping.
     intensity_min: float | None = None
+    # Name of a prepared task whose crops, masks and features this task reuses: it
+    # differs only in its splits (``official_variant``). None: a task with its own data.
+    split_of: str | None = None
+
+
+def official_variant(task: ClassificationTask) -> ClassificationTask:
+    """``<task>_official``: TASK's data with the dataset's own train/test split as its
+    single fold (``official_split`` column of the labels; val held out from train). Its
+    data/processed folder links TASK's images, masks and features (D37)."""
+    return replace(
+        task,
+        name=f"{task.name}_official",
+        description=f"{task.description}; official train/test split",
+        split_of=task.name,
+    )

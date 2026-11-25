@@ -159,3 +159,6 @@ datasets" matches the 8 test rows; RSNA Spine and MRNet were used only for devel
 - Label (ASSUMPTION): recurrence within 2 years; patients censored before 2 years are
   dropped. Time and event (RFS) for the Cox probes (C-index, D32). Splits stratify on
   centre x label. The paper has no survival task.
+- Official split (D37): `hecktor22_rfs_<pet|ct>_official` and `hecktor2022_rfs_<ct|pet>_official`
+  keep the challenge's train/test cohorts (test: CHB, MDA, USZ) as one fold, 20% of train as
+  val, so results can be set next to the challenge leaderboard.

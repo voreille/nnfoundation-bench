@@ -25,6 +25,7 @@ uv run nnfb-predict covariate-baseline kits_liver --column age  # reference from
 uv run nnfb-features fuse task_a task_b --name fused --model vit  # late fusion across modalities
 uv run nnfb-cox probe upenn_os_t1gd --model vit          # Cox probe, C-index (survival tasks)
 uv run nnfb-cox probe hecktor22_rfs_pet --model covariates --column age --column hpv
+uv run nnfb-data prepare hecktor22_rfs_pet_official      # same data, challenge train/test split (D37)
 uv run nnfb-predict table                                 # design grid over all tasks (CNN / ViT)
 uv run pytest && uv run ruff check && uv run ruff format --check
 ```

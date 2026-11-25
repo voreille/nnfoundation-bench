@@ -36,6 +36,7 @@ Next steps:
    little over age (C-index 0.629 vs 0.619).
 4. HECKTOR 2022, our 2-year variant `hecktor22_rfs_*` (D34): probes, Cox, within-centre
    C-index (D35), image + covariate blends (D36) and PET + CT fusion done.
+   Official challenge split (D37): `hecktor22_rfs_<pet|ct>_official`, to run on the host.
 5. HECKTOR 2022 RFS (D26): prepare both modalities on the host; meanwhile write the Cox
    probe, the C-index (plain, within-centre) and the per-ROI poolings (GTVp, GTVn,
    concatenation) are written (D27); then `scripts/run_probes.sh` on both tasks. Next:
@@ -194,7 +195,7 @@ x 15 negatives), so these values are noisy.
 
 HECKTOR 2022 recurrence-free survival, **C-index** (D26, D27):
 
-<!-- generated: design hecktor2022_* -->
+<!-- generated: design hecktor2022_rfs_ct hecktor2022_rfs_pet -->
 No results yet.
 <!-- end generated -->
 
@@ -659,7 +660,7 @@ Results, 2026-11-19:
   (M2) 0.657, mean (M3) 0.652; within-centre 0.58-0.60, no better than the best single
   modality. Fusion helps less than adding the centre.
 
-<!-- generated: design hecktor22_* -->
+<!-- generated: design hecktor22_rfs_ct hecktor22_rfs_fused hecktor22_rfs_pet -->
 | ID | hecktor22_rfs_ct | hecktor22_rfs_fused | hecktor22_rfs_pet |
 |----|---|---|---|
 | F1 | 0.533 ± 0.039 / 0.614 ± 0.012 | - / - | 0.548 ± 0.029 / 0.656 ± 0.040 |
@@ -677,7 +678,7 @@ Results, 2026-11-19:
 | ref | 0.649 ± 0.003 | n/a | 0.649 ± 0.003 |
 <!-- end generated -->
 
-<!-- generated: design-within hecktor22_* -->
+<!-- generated: design-within hecktor22_rfs_ct hecktor22_rfs_fused hecktor22_rfs_pet -->
 | ID | hecktor22_rfs_ct | hecktor22_rfs_fused | hecktor22_rfs_pet |
 |----|---|---|---|
 | F1 | 0.508 ± 0.054 / 0.526 ± 0.044 | - / - | 0.529 ± 0.053 / 0.616 ± 0.040 |
@@ -695,7 +696,7 @@ Results, 2026-11-19:
 | ref | 0.500 ± 0.000 | n/a | 0.500 ± 0.000 |
 <!-- end generated -->
 
-<!-- generated: cindex-within hecktor22_* -->
+<!-- generated: cindex-within hecktor22_rfs_ct hecktor22_rfs_pet -->
 | ID | hecktor22_rfs_ct | hecktor22_rfs_pet |
 |----|---|---|
 | F1 | 0.507 ± 0.017 / 0.525 ± 0.033 | 0.539 ± 0.038 / 0.603 ± 0.026 |
@@ -792,7 +793,7 @@ PET + CT fusion (D30), every run:
 | `cnn_fused_concat_mean_logreg` |  | 0.523 ± 0.043 | 0.501 ± 0.061 |
 <!-- end generated -->
 
-<!-- generated: cindex hecktor22_* -->
+<!-- generated: cindex hecktor22_rfs_ct hecktor22_rfs_pet -->
 | ID | hecktor22_rfs_ct | hecktor22_rfs_pet |
 |----|---|---|
 | F1 | 0.533 ± 0.015 / 0.589 ± 0.013 | 0.540 ± 0.020 / 0.633 ± 0.038 |
@@ -802,6 +803,26 @@ PET + CT fusion (D30), every run:
 | ref-age | 0.508 ± 0.004 | 0.508 ± 0.004 |
 | ref-age+hpv | 0.536 ± 0.014 | 0.536 ± 0.014 |
 | ref-site | 0.613 ± 0.012 | 0.613 ± 0.012 |
+<!-- end generated -->
+
+### hecktor22_rfs_*_official (challenge train/test split, D37)
+
+Same patients, crops and features as `hecktor22_rfs_*`, one fold: the challenge's training
+cohort (7 centres) as train + val (80/20), its test cohort (CHB, MDA, USZ) as test. One test
+set, so no ± std; comparable in kind with the challenge Task 2 leaderboard (about 0.68
+C-index), which used all of RFS rather than our 2-year cohort. AUROC, within-centre AUROC,
+then the C-index:
+
+<!-- generated: design hecktor22_*_official -->
+No results yet.
+<!-- end generated -->
+
+<!-- generated: design-within hecktor22_*_official -->
+No results yet.
+<!-- end generated -->
+
+<!-- generated: cindex hecktor22_*_official -->
+No results yet.
 <!-- end generated -->
 
 ### kits_liver
@@ -977,3 +998,11 @@ None yet.
   `survival.within_group_cindex`. BraTS, UPENN and `hecktor22_*` tables regenerated with
   the merged code: same numbers.
 
+### 2026-11-25
+- Official train/test split for HECKTOR 2022 (D37): tasks `<task>_official` for
+  `hecktor22_rfs_<pet|ct>` and `hecktor2022_rfs_<ct|pet>`, one fold (challenge training
+  cohort as train + val 80/20, test cohort CHB/MDA/USZ as test). `prepare` links the parent
+  task's crops, features and radiomics, so only the probes run again. The 2-year variant's
+  `cohort` column is now `official_split`, as in `hecktor2022.py`. The `hecktor22_*` and
+  `hecktor2022_*` generated blocks now name their tasks, so the `_official` tasks get their
+  own blocks. Unit-tested; to run on the host.

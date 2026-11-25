@@ -307,9 +307,11 @@ def auroc_stats(task: str, within_group: bool = False) -> pd.DataFrame:
 
 
 def format_auroc(row: pd.Series, n_folds: int = 5) -> str:
-    """``"mean ± std"``, with the fold count if it is not the full set."""
+    """``"mean ± std"``, with the fold count if it is not the full set; a single fold
+    (e.g. an ``_official`` task, D37) has no std."""
     folds = "" if row["count"] == n_folds else f" (n={int(row['count'])})"
-    return f"{row['mean']:.3f} ± {row['std']:.3f}{folds}"
+    std = "" if row["count"] == 1 else f" ± {row['std']:.3f}"
+    return f"{row['mean']:.3f}{std}{folds}"
 
 
 def auroc_summary(task: str, within_group: bool = False) -> pd.Series:

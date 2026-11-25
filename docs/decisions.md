@@ -694,3 +694,27 @@ Merges D27 (Valentin: survival probes in `nnfb-features probe`) with D31/D32 (ou
   (0.1-0.9 on HECKTOR, 0.0-0.8 on UPENN): small val sets. Adding the centre does not change
   a within-centre metric (a constant per centre) unless val picks `w` = 0 (every pair then
   ties, 0.5), so read plain AUROC/C-index for `+group`.
+
+## D37. Official train/test split as an extra task per HECKTOR 2022 task (active, 2026-11-25)
+- **Choice:** `<task>_official` (registered for `hecktor22_rfs_<pet|ct>` and
+  `hecktor2022_rfs_<ct|pet>`): same cases, crops and features as `<task>`, one fold only:
+  the challenge's training cohort as train (80%) + val (20%, stratified on centre x label),
+  its test cohort (CHB, MDA, USZ) as test. `nnfb-data prepare <task>_official` (after
+  `prepare <task>`) writes its labels and `splits.json` and links the parent's `images`,
+  `masks`, `features`, `radiomics` and QC crops, so nothing is recomputed. Every probe,
+  reference, Cox, fusion and table command then runs on it as on any task; results go to
+  `outputs/results/<task>_official/`. A one-fold cell has no std: `0.650 (n=1)`. The
+  label column is `official_split` in both HECKTOR 2022 modules (the 2-year variant called
+  it `cohort`).
+- **Why:** our repeated 40/10/50 splits (D26, D34) pool the two cohorts and stratify on
+  centre, so they cannot be compared with the challenge leaderboard (Task 2 winners about
+  0.68 C-index on the test set), and they never test a centre unseen in training. The
+  official test set holds two such centres (CHB, USZ) next to MDA.
+- **Rejected:** a 6th entry in `splits.json` (every per-task mean would mix it with the 5
+  random splits); a `--splits official` option on every probe CLI (one flag in ~10 commands,
+  and the results would need their own folder anyway); the `splits_official.json` file that
+  `prepare` already writes for `hecktor2022_rfs_*` (nothing reads it; kept, same content).
+- **Open:** one test set gives no spread over splits; a bootstrap CI over test patients
+  would be the uncertainty to report. Val is 20% of the training cohort (~90 patients for
+  the 2-year variant), so hyperparameters are picked on more cases than in the repeated
+  splits.

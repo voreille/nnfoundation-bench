@@ -5,6 +5,7 @@ https://github.com/MIC-DKFZ/image_classification/blob/master/docs/nnfoundation.m
 """
 
 import json
+import os
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -175,6 +176,64 @@ def repeated_splits(
     return [stratified_split(labels, seed=seed + i) for i in range(n_splits)]
 
 
+def _link(link: Path, target: Path) -> None:
+    """Relative symlink ``link -> target`` (kept if it already points there)."""
+    rel = Path(os.path.relpath(target, link.parent))
+    if link.is_symlink() and Path(os.readlink(link)) == rel:
+        return
+    if link.exists() or link.is_symlink():
+        raise FileExistsError(f"{link} exists and is not a link to {target}")
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(rel, target_is_directory=True)
+
+
+def prepare_split_variant(task: ClassificationTask, seed: int = DEFAULT_SEED) -> None:
+    """Build ``data/processed/<task>/`` for a task that reuses the prepared task
+    ``task.split_of`` and only changes its splits (D37).
+
+    Links the parent's ``images``, ``masks``, ``features`` and ``radiomics`` (so frozen
+    features and radiomics are computed once) and its QC crops in data/interim. Writes
+    the parent's labels.json, its labels.csv plus the ``official_split`` column, and a
+    ``splits.json`` with one fold: the dataset's official train/test split, 20% of train
+    held out as val (``official_split``).
+    """
+    parent_dir = PROCESSED_DATA_DIR / task.split_of
+    if not (parent_dir / "labels.json").exists():
+        raise FileNotFoundError(f"{task.name}: prepare {task.split_of} first")
+    out_dir = PROCESSED_DATA_DIR / task.name
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for name in ("images", "masks", "features", "radiomics"):
+        (parent_dir / name).mkdir(exist_ok=True)  # features may not be extracted yet
+        _link(out_dir / name, parent_dir / name)
+    _link(INTERIM_DATA_DIR / task.name, INTERIM_DATA_DIR / task.split_of)
+
+    # From the raw labels: a parent prepared before the column existed lacks it.
+    official = task.load_labels().set_index("case_id")["official_split"]
+    labels = pd.read_csv(parent_dir / "labels.csv", dtype={"case_id": str})
+    labels["official_split"] = labels["case_id"].map(official)
+    labels.to_csv(out_dir / "labels.csv", index=False)
+    usable = json.loads((parent_dir / "labels.json").read_text())
+    (out_dir / "labels.json").write_text(json.dumps(usable, indent=1))
+    split = official_split(labels[labels["case_id"].isin(usable)], seed=seed)
+    (out_dir / "splits.json").write_text(json.dumps([split], indent=1))
+
+    summary = json.loads((parent_dir / "dataset.json").read_text())
+    summary |= {
+        "name": task.name,
+        "description": task.description,
+        "split_of": task.split_of,
+        "splits": "one fold: official train (80% train, 20% val) / official test",
+        "split_seeds": [seed],
+        "positives_per_fold": [{k: sum(usable[c] for c in v) for k, v in split.items()}],
+        "cases_per_fold": [{k: len(v) for k, v in split.items()}],
+    }
+    (out_dir / "dataset.json").write_text(json.dumps(summary, indent=2))
+    logger.success(f"{task.name}: official split of {task.split_of} -> {out_dir}")
+    logger.info(
+        f"Cases: {summary['cases_per_fold'][0]}, positives: {summary['positives_per_fold'][0]}"
+    )
+
+
 def _process_case(
     inputs: CaseInputs,
     task: ClassificationTask,
@@ -242,8 +301,12 @@ def prepare_task(
         <task>/masks/<case_id>.nii.gz    ROI mask on the same grid
 
     Cases whose processing fails, and (if ``task.require_roi``) cases without ROI, are
-    left out of labels.json and splits.json and listed in dataset.json.
+    left out of labels.json and splits.json and listed in dataset.json. A task with
+    ``split_of`` reuses that prepared task instead (``prepare_split_variant``).
     """
+    if task.split_of:
+        prepare_split_variant(task, seed=seed)
+        return
     out_dir = PROCESSED_DATA_DIR / task.name
     qc_dir = INTERIM_DATA_DIR / task.name
     for d in (out_dir / "images", out_dir / "masks", qc_dir / "images", qc_dir / "masks"):

@@ -176,3 +176,58 @@ def test_official_split_keeps_test_and_holds_out_val():
     assert split["test"] == sorted(f"c{i}" for i in range(20, 30))
     assert len(split["val"]) == 4 and len(split["train"]) == 16
     assert not set(split["train"]) & set(split["val"])
+
+
+def test_split_variant_links_parent_data_and_keeps_one_official_fold(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    from nnfoundation_bench import preprocessing
+    from nnfoundation_bench.datasets import get_task
+    from nnfoundation_bench.datasets.base import official_variant
+
+    processed, interim = tmp_path / "processed", tmp_path / "interim"
+    monkeypatch.setattr(preprocessing, "PROCESSED_DATA_DIR", processed)
+    monkeypatch.setattr(preprocessing, "INTERIM_DATA_DIR", interim)
+    cases = [f"A-{i:03d}" for i in range(20)] + [f"B-{i:03d}" for i in range(10)]
+    raw = pd.DataFrame(
+        {
+            "case_id": cases,
+            "label": [i % 2 for i in range(30)],
+            "official_split": ["train"] * 20 + ["test"] * 10,
+        }
+    )
+    parent = replace(get_task("hecktor22_rfs_pet"), load_labels=lambda: raw)
+    parent_dir = processed / parent.name
+    for name in ("images", "masks"):
+        (parent_dir / name).mkdir(parents=True)
+    (interim / parent.name).mkdir(parents=True)
+    usable = {c: int(y) for c, y in zip(raw["case_id"][1:], raw["label"][1:], strict=True)}
+    (parent_dir / "labels.json").write_text(json.dumps(usable))  # A-000: no ROI
+    raw.drop(columns="official_split").to_csv(parent_dir / "labels.csv", index=False)
+    (parent_dir / "dataset.json").write_text(json.dumps({"num_classes": 2, "name": "x"}))
+
+    task = official_variant(parent)
+    assert task.name == "hecktor22_rfs_pet_official" and task.split_of == parent.name
+    for _ in range(2):  # rerunnable
+        preprocessing.prepare_task(task)
+
+    out = processed / task.name
+    for name in ("images", "masks", "features", "radiomics"):
+        assert (out / name).is_symlink() and (out / name).resolve() == (parent_dir / name)
+    assert (interim / task.name).resolve() == interim / parent.name
+    (split,) = json.loads((out / "splits.json").read_text())
+    assert split["test"] == cases[20:]
+    assert "A-000" not in split["train"] + split["val"]
+    assert len(split["train"]) + len(split["val"]) == 19 and len(split["val"]) == 4
+    assert json.loads((out / "labels.json").read_text()) == usable
+    assert "official_split" in pd.read_csv(out / "labels.csv").columns
+    summary = json.loads((out / "dataset.json").read_text())
+    assert summary["name"] == task.name and summary["split_of"] == parent.name
+
+
+def test_official_variants_are_registered():
+    from nnfoundation_bench.datasets import get_task
+
+    for name in ("hecktor22_rfs_pet", "hecktor22_rfs_ct", "hecktor2022_rfs_pet"):
+        task = get_task(f"{name}_official")
+        assert task.split_of == name and task.roi_names == get_task(name).roi_names

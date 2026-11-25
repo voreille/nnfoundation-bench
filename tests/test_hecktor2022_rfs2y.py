@@ -33,6 +33,7 @@ def test_two_year_label_drops_patients_censored_before_two_years():
     assert labels.loc["CHUM-001", "age"] == 60
     assert labels.loc["CHUM-001", "group"] == "CHUM"
     assert labels.loc["CHUM-001", "stratum"] == "CHUM_1"
+    assert labels.loc["USZ-005", "official_split"] == "test"
 
 
 def test_one_task_per_modality_on_gtvp():
