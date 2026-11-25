@@ -24,6 +24,7 @@ as input channels, ROI handling, and how to pool features within a ROI.
 | `hecktor2022_rfs_ct`, `hecktor2022_rfs_pet` | HECKTOR 2022 train + test on the NAS, all checked: 827 patients with RFS, 174 relapses, 9 centres | preprocessing smoke-tested on 5 cases (PET and CT crops on the same grid, labels 1/2 kept); survival probe to write | none yet |
 | `rsna_spine_fracture` | 2019 studies unpacked on the NAS, checked (961 positive) | prepare on the host stopped at 1792 of 2019 (tmux session killed 2026-11-18 08:13); rerun resumes | none yet |
 | `upenn_os_*` (4 sequences) | 452 patients on the NAS (`UPENN_GBM`) + OS labels placed by hand (`GBM-UPENN-OS`), all 4 sequences, a mask for each (145 expert) | all 4 prepared on the host: 452 cases, 226 survived 1 year, no failures, no missing ROI; identical labels and splits (D31) | probes, radiomics, age reference, Cox / C-index (D32), fusion (`upenn_os_fused`) done |
+| `hecktor22_rfs_pet`, `hecktor22_rfs_ct` | HECKTOR 2022 challenge on the NAS (training + test with ground truth, `data/raw/HECKTOR2022/`), 827 patients with RFS, all CT, PET and masks present | labels checked on real data (714 labelled, 692 with GTVp); prepare both prepared on the host: 692 cases, 134 positive, 22 without GTVp excluded, no failures; identical labels and splits (D34) | probes, radiomics, age / age+HPV / centre references, Cox / C-index done |
 | `brats_gbm_*` (4 sequences) | 1809 scans on the NAS, 1621 with seg; metadata xlsx read | all 4 prepared on the host: 632 cases, 384 GBM, no failures, no missing ROI; identical labels and splits (D28) | probes, radiomics, site and age references, fusion (`brats_gbm_fused`) done |
 
 Next steps:
@@ -31,21 +32,24 @@ Next steps:
    phases.
 2. BraTS: age references and fusion done. Next: a generated age-and-site stratified AUROC
    (see Results) and age-adjusted probes (D29 open).
-3. UPENN survival: probes, Cox and fusion done; age alone beats every imaging probe. Next:
-   age + imaging probes (AUROC and Cox) to test whether imaging adds anything over age.
-4. RSNA: resume `prepare rsna_spine_fracture`, then `RADIOMICS="original"
-   scripts/run_probes.sh rsna_spine_fracture`.
+3. UPENN survival: probes, Cox, fusion and image + age blends (D36) done; the images add
+   little over age (C-index 0.629 vs 0.619).
+4. HECKTOR 2022, our 2-year variant `hecktor22_rfs_*` (D34): probes, Cox, within-centre
+   C-index (D35), image + covariate blends (D36) and PET + CT fusion done.
+   Official challenge split (D37): `hecktor22_rfs_<pet|ct>_official`, to run on the host.
 5. HECKTOR 2022 RFS (D26): prepare both modalities on the host; meanwhile write the Cox
    probe, the C-index (plain, within-centre) and the per-ROI poolings (GTVp, GTVn,
    concatenation) are written (D27); then `scripts/run_probes.sh` on both tasks. Next:
    PET + CT late fusion (M2-M4) and the official train -> test view.
-6. Fine-tuning baseline with glovita: `FOLDS=0 scripts/run_benchmark.sh hecktor_hpv_pet_gtvp`
+6. RSNA: resume `prepare rsna_spine_fracture`, then `RADIOMICS="original"
+   scripts/run_probes.sh rsna_spine_fracture`.
+7. Fine-tuning baseline with glovita: `FOLDS=0 scripts/run_benchmark.sh hecktor_hpv_pet_gtvp`
    (design T1).
-7. Input-size designs S2-S7: add `--fov` / `--mode` to `nnfb-features extract`, then run
+8. Input-size designs S2-S7: add `--fov` / `--mode` to `nnfb-features extract`, then run
    the FOV sweep.
-8. LLD-MMRI late fusion over the phases (M2-M4, D14, D15, D30): `nnfb-features fuse` is ready.
-9. KiTS Liver full run (background, paper reproduction).
-10. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
+9. LLD-MMRI late fusion over the phases (M2-M4, D14, D15, D30): `nnfb-features fuse` is ready.
+10. KiTS Liver full run (background, paper reproduction).
+11. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
    "pathology"). Each task needs about 12 GB in `data/processed`. See D12.
 
 ## Backlog
@@ -191,7 +195,7 @@ x 15 negatives), so these values are noisy.
 
 HECKTOR 2022 recurrence-free survival, **C-index** (D26, D27):
 
-<!-- generated: design hecktor2022_* -->
+<!-- generated: design hecktor2022_rfs_ct hecktor2022_rfs_pet -->
 No results yet.
 <!-- end generated -->
 
@@ -486,7 +490,12 @@ Results, 2026-11-19:
 - **Fusion barely helps:** best is the concat of the four ROI + 10 mm means (0.663), M2
   (concat ROI means) 0.661 ± 0.003, both level with age; mean fusion (M3) loses, as on
   BraTS. Fused radiomics 0.600 (concat) / 0.617 (stack).
-- Open question: does imaging add anything over age? Needs age + imaging probes.
+- **Image + age (D36):** small AUROC gains over age alone (0.667): best ViT ROI mean + age
+  0.688 (T2) and 0.689 (FLAIR), radiomics + age up to 0.689 (T2); several blends land at or
+  below age alone. **No C-index gain:** age alone 0.619, best blend ViT T2 F3 + age 0.629
+  (the image alone 0.623); most blends 0.58-0.62. The val weight of the images varies
+  between folds (T2 ROI mean: 0-0.8; 46 val cases). On UPENN the frozen features add
+  little or nothing to age for survival.
 
 <!-- generated: design upenn_* -->
 | ID | upenn_os_flair | upenn_os_fused | upenn_os_t1 | upenn_os_t1gd | upenn_os_t2 |
@@ -514,6 +523,88 @@ Results, 2026-11-19:
 | ref-age | 0.619 ± 0.019 | 0.619 ± 0.019 | 0.619 ± 0.019 | 0.619 ± 0.019 |
 <!-- end generated -->
 
+Image + age (D36), one table per sequence:
+
+<!-- generated: adjusted upenn_os_t1 -->
+| Run | AUROC | C-index |
+|---|---|---|
+| `covariates_age` | 0.667 ± 0.031 | 0.619 ± 0.019 |
+| `cnn_frozen_mean` | 0.531 ± 0.026 | 0.520 ± 0.025 |
+| `cnn_frozen_mean_plus_age` | 0.653 ± 0.036 | 0.589 ± 0.038 |
+| `cnn_frozen_roi_margin_mean` | 0.516 ± 0.021 | 0.550 ± 0.019 |
+| `cnn_frozen_roi_margin_mean_plus_age` | 0.639 ± 0.025 | 0.595 ± 0.033 |
+| `cnn_frozen_roi_mean` | 0.532 ± 0.019 | 0.549 ± 0.025 |
+| `cnn_frozen_roi_mean_plus_age` | 0.654 ± 0.038 | 0.596 ± 0.041 |
+| `radiomics_original` | 0.536 ± 0.052 | 0.519 ± 0.027 |
+| `radiomics_original_plus_age` | 0.643 ± 0.053 | 0.581 ± 0.045 |
+| `vit_frozen_mean` | 0.630 ± 0.044 | 0.589 ± 0.024 |
+| `vit_frozen_mean_plus_age` | 0.673 ± 0.032 | 0.603 ± 0.013 |
+| `vit_frozen_roi_margin_mean` | 0.643 ± 0.022 | 0.595 ± 0.022 |
+| `vit_frozen_roi_margin_mean_plus_age` | 0.678 ± 0.028 | 0.616 ± 0.018 |
+| `vit_frozen_roi_mean` | 0.627 ± 0.026 | 0.598 ± 0.018 |
+| `vit_frozen_roi_mean_plus_age` | 0.666 ± 0.016 | 0.607 ± 0.023 |
+<!-- end generated -->
+
+<!-- generated: adjusted upenn_os_t1gd -->
+| Run | AUROC | C-index |
+|---|---|---|
+| `covariates_age` | 0.667 ± 0.031 | 0.619 ± 0.019 |
+| `cnn_frozen_mean` | 0.513 ± 0.034 | 0.524 ± 0.012 |
+| `cnn_frozen_mean_plus_age` | 0.634 ± 0.030 | 0.604 ± 0.020 |
+| `cnn_frozen_roi_margin_mean` | 0.515 ± 0.034 | 0.519 ± 0.007 |
+| `cnn_frozen_roi_margin_mean_plus_age` | 0.638 ± 0.055 | 0.568 ± 0.045 |
+| `cnn_frozen_roi_mean` | 0.514 ± 0.032 | 0.526 ± 0.005 |
+| `cnn_frozen_roi_mean_plus_age` | 0.625 ± 0.066 | 0.583 ± 0.037 |
+| `radiomics_original` | 0.538 ± 0.026 | 0.527 ± 0.021 |
+| `radiomics_original_plus_age` | 0.659 ± 0.040 | 0.586 ± 0.051 |
+| `vit_frozen_mean` | 0.603 ± 0.032 | 0.580 ± 0.017 |
+| `vit_frozen_mean_plus_age` | 0.654 ± 0.023 | 0.593 ± 0.019 |
+| `vit_frozen_roi_margin_mean` | 0.587 ± 0.023 | 0.580 ± 0.018 |
+| `vit_frozen_roi_margin_mean_plus_age` | 0.631 ± 0.043 | 0.603 ± 0.029 |
+| `vit_frozen_roi_mean` | 0.581 ± 0.033 | 0.587 ± 0.014 |
+| `vit_frozen_roi_mean_plus_age` | 0.657 ± 0.026 | 0.611 ± 0.024 |
+<!-- end generated -->
+
+<!-- generated: adjusted upenn_os_t2 -->
+| Run | AUROC | C-index |
+|---|---|---|
+| `covariates_age` | 0.667 ± 0.031 | 0.619 ± 0.019 |
+| `cnn_frozen_mean` | 0.547 ± 0.037 | 0.554 ± 0.020 |
+| `cnn_frozen_mean_plus_age` | 0.656 ± 0.029 | 0.610 ± 0.018 |
+| `cnn_frozen_roi_margin_mean` | 0.542 ± 0.010 | 0.536 ± 0.009 |
+| `cnn_frozen_roi_margin_mean_plus_age` | 0.659 ± 0.040 | 0.569 ± 0.036 |
+| `cnn_frozen_roi_mean` | 0.542 ± 0.015 | 0.542 ± 0.008 |
+| `cnn_frozen_roi_mean_plus_age` | 0.644 ± 0.034 | 0.584 ± 0.025 |
+| `radiomics_original` | 0.623 ± 0.030 | 0.567 ± 0.013 |
+| `radiomics_original_plus_age` | 0.689 ± 0.040 | 0.615 ± 0.034 |
+| `vit_frozen_mean` | 0.607 ± 0.036 | 0.595 ± 0.030 |
+| `vit_frozen_mean_plus_age` | 0.660 ± 0.025 | 0.610 ± 0.033 |
+| `vit_frozen_roi_margin_mean` | 0.655 ± 0.027 | 0.623 ± 0.011 |
+| `vit_frozen_roi_margin_mean_plus_age` | 0.681 ± 0.026 | 0.629 ± 0.007 |
+| `vit_frozen_roi_mean` | 0.638 ± 0.037 | 0.605 ± 0.029 |
+| `vit_frozen_roi_mean_plus_age` | 0.688 ± 0.007 | 0.624 ± 0.011 |
+<!-- end generated -->
+
+<!-- generated: adjusted upenn_os_flair -->
+| Run | AUROC | C-index |
+|---|---|---|
+| `covariates_age` | 0.667 ± 0.031 | 0.619 ± 0.019 |
+| `cnn_frozen_mean` | 0.502 ± 0.038 | 0.523 ± 0.009 |
+| `cnn_frozen_mean_plus_age` | 0.625 ± 0.020 | 0.588 ± 0.030 |
+| `cnn_frozen_roi_margin_mean` | 0.509 ± 0.012 | 0.524 ± 0.010 |
+| `cnn_frozen_roi_margin_mean_plus_age` | 0.613 ± 0.027 | 0.584 ± 0.047 |
+| `cnn_frozen_roi_mean` | 0.501 ± 0.039 | 0.521 ± 0.015 |
+| `cnn_frozen_roi_mean_plus_age` | 0.629 ± 0.062 | 0.599 ± 0.037 |
+| `radiomics_original` | 0.569 ± 0.015 | 0.544 ± 0.021 |
+| `radiomics_original_plus_age` | 0.645 ± 0.047 | 0.607 ± 0.031 |
+| `vit_frozen_mean` | 0.619 ± 0.039 | 0.588 ± 0.024 |
+| `vit_frozen_mean_plus_age` | 0.655 ± 0.049 | 0.603 ± 0.022 |
+| `vit_frozen_roi_margin_mean` | 0.610 ± 0.023 | 0.599 ± 0.008 |
+| `vit_frozen_roi_margin_mean_plus_age` | 0.670 ± 0.027 | 0.619 ± 0.013 |
+| `vit_frozen_roi_mean` | 0.622 ± 0.013 | 0.588 ± 0.010 |
+| `vit_frozen_roi_mean_plus_age` | 0.689 ± 0.028 | 0.603 ± 0.018 |
+<!-- end generated -->
+
 <!-- generated: runs upenn_os_fused -->
 | Run | Design | AUROC |
 |---|---|---|
@@ -537,6 +628,201 @@ Results, 2026-11-19:
 | `cnn_fused_mean_roi_margin_mean_logreg` |  | 0.507 ± 0.035 |
 | `cnn_fused_concat_roi_margin_mean_logreg` |  | 0.506 ± 0.026 |
 | `cnn_fused_mean_roi_mean_logreg` | M3 | 0.505 ± 0.040 |
+<!-- end generated -->
+
+### hecktor22_rfs_*
+
+692 patients (GTVp present), 134 recurrences within 2 years, 169 events overall;
+9 centres. AUROC (2-year recurrence), within-centre AUROC, then the C-index (D32, D34):
+
+Results, 2026-11-19:
+- **Centre is the strongest single predictor:** centre alone 0.649 AUROC (`ref`) and 0.613
+  C-index (`ref-site`), level with the best ViT probes (0.651-0.658 AUROC). Recurrence rates
+  and follow-up differ by centre (USZ 37/82 positive, MDA 53/365).
+- **The ViT keeps some signal within centres:** within-centre AUROC 0.59-0.62 (best PET F1
+  0.616, CT F2 0.590), where centre is 0.5 by construction. C-index up to 0.637 (PET F3)
+  and 0.634 (CT F2), a little above centre alone; within-centre C-index (D35) up to 0.603
+  (PET F1) and 0.594 (CT F2), centre alone 0.5.
+- **PET and CT are close.** PET is better on the whole crop (F1), CT catches up with ROI
+  pooling (F2 0.651 vs F1 0.614). Radiomics 0.60-0.61 AUROC, ~0.60 C-index, weaker within
+  centres (0.55-0.56).
+- **The CNN is near chance** (0.51-0.57), as on UPENN.
+- **Age carries nothing** (0.49 AUROC, 0.51 C-index). Age + HPV only 0.518 / 0.536: HPV is
+  unknown for a third of patients (median-imputed) and nearly all-positive at MDA, so it
+  adds little in this cohort.
+- **Image + centre (D36):** blending the image probe with the centre lifts AUROC above
+  centre alone (0.644 logistic, 0.649 `group_prior`): ViT PET F3 + centre 0.683, CT F2 +
+  centre 0.674, radiomics + centre 0.668-0.678. Same for the C-index (centre alone 0.613):
+  ViT PET F3 + centre 0.657, CT F2 + centre 0.650, radiomics + centre 0.631-0.643, each
+  also above the image alone (0.637, 0.634). The CNN adds little (AUROC 0.63-0.65, C-index
+  0.58-0.63). Adding age and HPV to the centre changes little (AUROC 0.650, C-index 0.614).
+- **PET + CT fusion (D30):** score stacking of the two ViT ROI-mean probes (M4) 0.669, concat
+  (M2) 0.657, mean (M3) 0.652; within-centre 0.58-0.60, no better than the best single
+  modality. Fusion helps less than adding the centre.
+
+<!-- generated: design hecktor22_rfs_ct hecktor22_rfs_fused hecktor22_rfs_pet -->
+| ID | hecktor22_rfs_ct | hecktor22_rfs_fused | hecktor22_rfs_pet |
+|----|---|---|---|
+| F1 | 0.533 ± 0.039 / 0.614 ± 0.012 | - / - | 0.548 ± 0.029 / 0.656 ± 0.040 |
+| F2 | 0.508 ± 0.025 / 0.651 ± 0.015 | - / - | 0.568 ± 0.053 / 0.647 ± 0.016 |
+| F3 | 0.523 ± 0.022 / 0.636 ± 0.022 | - / - | 0.550 ± 0.039 / 0.658 ± 0.040 |
+| T1 | - / - | - / - | - / - |
+| T1-last | - / - | - / - | - / - |
+| R1 | 0.602 ± 0.061 | - | 0.611 ± 0.025 |
+| M2 | - / - | 0.557 ± 0.039 / 0.657 ± 0.039 | - / - |
+| M3 | - / - | 0.544 ± 0.029 / 0.652 ± 0.038 | - / - |
+| M4 | - / - | 0.533 ± 0.040 / 0.669 ± 0.017 | - / - |
+| ref-age | 0.490 ± 0.014 | - | 0.490 ± 0.014 |
+| ref-age+site | 0.640 ± 0.009 | - | 0.640 ± 0.009 |
+| ref-age+hpv | 0.518 ± 0.006 | - | 0.518 ± 0.006 |
+| ref | 0.649 ± 0.003 | n/a | 0.649 ± 0.003 |
+<!-- end generated -->
+
+<!-- generated: design-within hecktor22_rfs_ct hecktor22_rfs_fused hecktor22_rfs_pet -->
+| ID | hecktor22_rfs_ct | hecktor22_rfs_fused | hecktor22_rfs_pet |
+|----|---|---|---|
+| F1 | 0.508 ± 0.054 / 0.526 ± 0.044 | - / - | 0.529 ± 0.053 / 0.616 ± 0.040 |
+| F2 | 0.493 ± 0.051 / 0.590 ± 0.028 | - / - | 0.531 ± 0.051 / 0.587 ± 0.029 |
+| F3 | 0.504 ± 0.052 / 0.580 ± 0.037 | - / - | 0.513 ± 0.033 / 0.595 ± 0.038 |
+| T1 | - / - | - / - | - / - |
+| T1-last | - / - | - / - | - / - |
+| R1 | 0.558 ± 0.041 | - | 0.553 ± 0.024 |
+| M2 | - / - | 0.523 ± 0.022 / 0.583 ± 0.022 | - / - |
+| M3 | - / - | 0.505 ± 0.015 / 0.591 ± 0.029 | - / - |
+| M4 | - / - | 0.509 ± 0.049 / 0.595 ± 0.011 | - / - |
+| ref-age | 0.488 ± 0.035 | - | 0.488 ± 0.035 |
+| ref-age+site | 0.488 ± 0.035 | - | 0.488 ± 0.035 |
+| ref-age+hpv | 0.499 ± 0.031 | - | 0.499 ± 0.031 |
+| ref | 0.500 ± 0.000 | n/a | 0.500 ± 0.000 |
+<!-- end generated -->
+
+<!-- generated: cindex-within hecktor22_rfs_ct hecktor22_rfs_pet -->
+| ID | hecktor22_rfs_ct | hecktor22_rfs_pet |
+|----|---|---|
+| F1 | 0.507 ± 0.017 / 0.525 ± 0.033 | 0.539 ± 0.038 / 0.603 ± 0.026 |
+| F2 | 0.500 ± 0.046 / 0.594 ± 0.034 | 0.558 ± 0.027 / 0.558 ± 0.028 |
+| F3 | 0.483 ± 0.044 / 0.578 ± 0.037 | 0.535 ± 0.037 / 0.572 ± 0.025 |
+| R1 | 0.564 ± 0.030 | 0.555 ± 0.043 |
+| ref-age | 0.503 ± 0.021 | 0.503 ± 0.021 |
+| ref-age+hpv | 0.512 ± 0.027 | 0.512 ± 0.027 |
+| ref-site | 0.500 ± 0.000 | 0.500 ± 0.000 |
+<!-- end generated -->
+
+Image + covariates (D36), PET then CT:
+
+<!-- generated: adjusted hecktor22_rfs_pet -->
+| Run | AUROC | Within-centre AUROC | C-index | Within-centre C-index |
+|---|---|---|---|---|
+| `covariates_age_hpv_group` | 0.650 ± 0.014 | 0.499 ± 0.031 | 0.614 ± 0.015 | 0.499 ± 0.016 |
+| `cnn_frozen_mean` | 0.548 ± 0.029 | 0.529 ± 0.053 | 0.540 ± 0.020 | 0.539 ± 0.038 |
+| `cnn_frozen_mean_plus_age_hpv_group` | 0.642 ± 0.031 | 0.525 ± 0.057 | - | - |
+| `covariates_group` | 0.644 ± 0.006 | 0.500 ± 0.000 | 0.613 ± 0.012 | 0.500 ± 0.000 |
+| `cnn_frozen_mean_plus_group` | 0.644 ± 0.024 | 0.529 ± 0.053 | 0.622 ± 0.024 | 0.539 ± 0.038 |
+| `cnn_frozen_roi_margin_mean` | 0.550 ± 0.039 | 0.513 ± 0.033 | 0.559 ± 0.032 | 0.535 ± 0.037 |
+| `cnn_frozen_roi_margin_mean_plus_age_hpv_group` | 0.647 ± 0.033 | 0.502 ± 0.031 | - | - |
+| `cnn_frozen_roi_margin_mean_plus_group` | 0.642 ± 0.032 | 0.513 ± 0.033 | 0.622 ± 0.026 | 0.535 ± 0.037 |
+| `cnn_frozen_roi_mean` | 0.568 ± 0.053 | 0.531 ± 0.051 | 0.575 ± 0.033 | 0.558 ± 0.027 |
+| `cnn_frozen_roi_mean_plus_age_hpv_group` | 0.649 ± 0.021 | 0.529 ± 0.050 | - | - |
+| `cnn_frozen_roi_mean_plus_group` | 0.650 ± 0.026 | 0.531 ± 0.051 | 0.633 ± 0.019 | 0.558 ± 0.027 |
+| `radiomics_original` | 0.611 ± 0.025 | 0.553 ± 0.024 | 0.596 ± 0.019 | 0.555 ± 0.043 |
+| `radiomics_original_plus_age_hpv_group` | 0.661 ± 0.018 | 0.534 ± 0.020 | - | - |
+| `radiomics_original_plus_group` | 0.668 ± 0.021 | 0.553 ± 0.024 | 0.631 ± 0.013 | 0.555 ± 0.043 |
+| `vit_frozen_mean` | 0.656 ± 0.040 | 0.616 ± 0.040 | 0.633 ± 0.038 | 0.603 ± 0.026 |
+| `vit_frozen_mean_plus_age_hpv_group` | 0.680 ± 0.024 | 0.615 ± 0.036 | - | - |
+| `vit_frozen_mean_plus_group` | 0.679 ± 0.014 | 0.616 ± 0.040 | 0.638 ± 0.027 | 0.603 ± 0.026 |
+| `vit_frozen_roi_margin_mean` | 0.658 ± 0.040 | 0.595 ± 0.038 | 0.637 ± 0.024 | 0.572 ± 0.025 |
+| `vit_frozen_roi_margin_mean_plus_age_hpv_group` | 0.679 ± 0.028 | 0.596 ± 0.038 | - | - |
+| `vit_frozen_roi_margin_mean_plus_group` | 0.683 ± 0.023 | 0.596 ± 0.037 | 0.657 ± 0.018 | 0.572 ± 0.025 |
+| `vit_frozen_roi_mean` | 0.647 ± 0.016 | 0.587 ± 0.029 | 0.622 ± 0.032 | 0.558 ± 0.028 |
+| `vit_frozen_roi_mean_plus_age_hpv_group` | 0.678 ± 0.020 | 0.586 ± 0.028 | - | - |
+| `vit_frozen_roi_mean_plus_group` | 0.674 ± 0.016 | 0.587 ± 0.029 | 0.640 ± 0.022 | 0.551 ± 0.038 |
+<!-- end generated -->
+
+<!-- generated: adjusted hecktor22_rfs_ct -->
+| Run | AUROC | Within-centre AUROC | C-index | Within-centre C-index |
+|---|---|---|---|---|
+| `covariates_age_hpv_group` | 0.650 ± 0.014 | 0.499 ± 0.031 | 0.614 ± 0.015 | 0.499 ± 0.016 |
+| `cnn_frozen_mean` | 0.533 ± 0.039 | 0.508 ± 0.054 | 0.533 ± 0.015 | 0.507 ± 0.017 |
+| `cnn_frozen_mean_plus_age_hpv_group` | 0.641 ± 0.032 | 0.490 ± 0.040 | - | - |
+| `covariates_group` | 0.644 ± 0.006 | 0.500 ± 0.000 | 0.613 ± 0.012 | 0.500 ± 0.000 |
+| `cnn_frozen_mean_plus_group` | 0.634 ± 0.030 | 0.491 ± 0.032 | 0.596 ± 0.029 | 0.509 ± 0.015 |
+| `cnn_frozen_roi_margin_mean` | 0.523 ± 0.022 | 0.504 ± 0.052 | 0.513 ± 0.035 | 0.483 ± 0.044 |
+| `cnn_frozen_roi_margin_mean_plus_age_hpv_group` | 0.645 ± 0.025 | 0.506 ± 0.038 | - | - |
+| `cnn_frozen_roi_margin_mean_plus_group` | 0.627 ± 0.029 | 0.504 ± 0.052 | 0.582 ± 0.049 | 0.481 ± 0.040 |
+| `cnn_frozen_roi_mean` | 0.508 ± 0.025 | 0.493 ± 0.051 | 0.523 ± 0.028 | 0.500 ± 0.046 |
+| `cnn_frozen_roi_mean_plus_age_hpv_group` | 0.649 ± 0.018 | 0.496 ± 0.024 | - | - |
+| `cnn_frozen_roi_mean_plus_group` | 0.637 ± 0.019 | 0.489 ± 0.049 | 0.606 ± 0.023 | 0.494 ± 0.035 |
+| `radiomics_original` | 0.602 ± 0.061 | 0.558 ± 0.041 | 0.606 ± 0.019 | 0.564 ± 0.030 |
+| `radiomics_original_plus_age_hpv_group` | 0.667 ± 0.017 | 0.531 ± 0.042 | - | - |
+| `radiomics_original_plus_group` | 0.678 ± 0.016 | 0.558 ± 0.041 | 0.643 ± 0.006 | 0.564 ± 0.030 |
+| `vit_frozen_mean` | 0.614 ± 0.012 | 0.526 ± 0.044 | 0.589 ± 0.013 | 0.525 ± 0.033 |
+| `vit_frozen_mean_plus_age_hpv_group` | 0.653 ± 0.016 | 0.524 ± 0.048 | - | - |
+| `vit_frozen_mean_plus_group` | 0.651 ± 0.013 | 0.520 ± 0.046 | 0.614 ± 0.014 | 0.521 ± 0.035 |
+| `vit_frozen_roi_margin_mean` | 0.636 ± 0.022 | 0.580 ± 0.037 | 0.623 ± 0.010 | 0.578 ± 0.037 |
+| `vit_frozen_roi_margin_mean_plus_age_hpv_group` | 0.661 ± 0.027 | 0.557 ± 0.046 | - | - |
+| `vit_frozen_roi_margin_mean_plus_group` | 0.665 ± 0.020 | 0.558 ± 0.045 | 0.641 ± 0.022 | 0.573 ± 0.046 |
+| `vit_frozen_roi_mean` | 0.651 ± 0.015 | 0.590 ± 0.028 | 0.634 ± 0.014 | 0.594 ± 0.034 |
+| `vit_frozen_roi_mean_plus_age_hpv_group` | 0.675 ± 0.011 | 0.584 ± 0.021 | - | - |
+| `vit_frozen_roi_mean_plus_group` | 0.674 ± 0.011 | 0.590 ± 0.028 | 0.650 ± 0.004 | 0.594 ± 0.034 |
+<!-- end generated -->
+
+PET + CT fusion (D30), every run:
+
+<!-- generated: runs hecktor22_rfs_fused -->
+| Run | Design | AUROC | Within-centre AUROC |
+|---|---|---|---|
+| `vit_fused_stack_roi_mean_logreg` | M4 | 0.669 ± 0.017 | 0.595 ± 0.011 |
+| `vit_fused_concat_roi_margin_mean_logreg` |  | 0.666 ± 0.035 | 0.598 ± 0.025 |
+| `vit_fused_stack_roi_margin_mean_logreg` |  | 0.664 ± 0.033 | 0.595 ± 0.033 |
+| `vit_fused_mean_roi_margin_mean_logreg` |  | 0.662 ± 0.042 | 0.608 ± 0.025 |
+| `vit_fused_concat_roi_mean_logreg` | M2 | 0.657 ± 0.039 | 0.583 ± 0.022 |
+| `vit_fused_stack_mean_logreg` |  | 0.653 ± 0.023 | 0.599 ± 0.025 |
+| `vit_fused_mean_roi_mean_logreg` | M3 | 0.652 ± 0.038 | 0.591 ± 0.029 |
+| `vit_fused_mean_mean_logreg` |  | 0.650 ± 0.029 | 0.596 ± 0.030 |
+| `vit_fused_concat_mean_logreg` |  | 0.635 ± 0.031 | 0.586 ± 0.031 |
+| `radiomics_original_fused_stack_logreg` |  | 0.612 ± 0.028 | 0.557 ± 0.025 |
+| `radiomics_original_fused_concat_logreg` |  | 0.600 ± 0.055 | 0.564 ± 0.037 |
+| `cnn_fused_concat_roi_mean_logreg` | M2 | 0.557 ± 0.039 | 0.523 ± 0.022 |
+| `cnn_fused_concat_roi_margin_mean_logreg` |  | 0.555 ± 0.023 | 0.511 ± 0.024 |
+| `cnn_fused_stack_roi_margin_mean_logreg` |  | 0.545 ± 0.042 | 0.506 ± 0.038 |
+| `cnn_fused_mean_roi_mean_logreg` | M3 | 0.544 ± 0.029 | 0.505 ± 0.015 |
+| `cnn_fused_mean_roi_margin_mean_logreg` |  | 0.538 ± 0.023 | 0.515 ± 0.022 |
+| `cnn_fused_stack_roi_mean_logreg` | M4 | 0.533 ± 0.040 | 0.509 ± 0.049 |
+| `cnn_fused_stack_mean_logreg` |  | 0.531 ± 0.033 | 0.508 ± 0.068 |
+| `cnn_fused_mean_mean_logreg` |  | 0.529 ± 0.013 | 0.503 ± 0.035 |
+| `cnn_fused_concat_mean_logreg` |  | 0.523 ± 0.043 | 0.501 ± 0.061 |
+<!-- end generated -->
+
+<!-- generated: cindex hecktor22_rfs_ct hecktor22_rfs_pet -->
+| ID | hecktor22_rfs_ct | hecktor22_rfs_pet |
+|----|---|---|
+| F1 | 0.533 ± 0.015 / 0.589 ± 0.013 | 0.540 ± 0.020 / 0.633 ± 0.038 |
+| F2 | 0.523 ± 0.028 / 0.634 ± 0.014 | 0.575 ± 0.033 / 0.622 ± 0.032 |
+| F3 | 0.513 ± 0.035 / 0.623 ± 0.010 | 0.559 ± 0.032 / 0.637 ± 0.024 |
+| R1 | 0.606 ± 0.019 | 0.596 ± 0.019 |
+| ref-age | 0.508 ± 0.004 | 0.508 ± 0.004 |
+| ref-age+hpv | 0.536 ± 0.014 | 0.536 ± 0.014 |
+| ref-site | 0.613 ± 0.012 | 0.613 ± 0.012 |
+<!-- end generated -->
+
+### hecktor22_rfs_*_official (challenge train/test split, D37)
+
+Same patients, crops and features as `hecktor22_rfs_*`, one fold: the challenge's training
+cohort (7 centres) as train + val (80/20), its test cohort (CHB, MDA, USZ) as test. One test
+set, so no ± std; comparable in kind with the challenge Task 2 leaderboard (about 0.68
+C-index), which used all of RFS rather than our 2-year cohort. AUROC, within-centre AUROC,
+then the C-index:
+
+<!-- generated: design hecktor22_*_official -->
+No results yet.
+<!-- end generated -->
+
+<!-- generated: design-within hecktor22_*_official -->
+No results yet.
+<!-- end generated -->
+
+<!-- generated: cindex hecktor22_*_official -->
+No results yet.
 <!-- end generated -->
 
 ### kits_liver
@@ -687,3 +973,36 @@ None yet.
   tasks (label = event) get Cox probes in `nnfb-features probe`; tasks with a binary label
   plus time/event (UPENN) keep logistic probes and get Cox from `nnfb-cox`. BraTS and UPENN
   tables regenerated with the merged code: same numbers.
+- HECKTOR 2022 recurrence-free survival added (D34): `hecktor22_rfs_<pet|ct>` on the
+  challenge release Valentin linked (training + test pooled, 9 centres). Label = recurrence
+  within 2 years; 113 patients censored earlier dropped; 714 labelled, 692 with GTVp
+  (134 positive, 169 events). New references age + HPV (AUROC and Cox) and centre (Cox).
+  Prepare smoke-tested on 4 cases x 2 modalities: GTVp fully inside the crop, ~7-20 s per
+  case; the case without GTVp is flagged for exclusion.
+- HECKTOR 2022 on the host: both tasks prepared (692 cases, 22 without GTVp excluded, no
+  failures, identical splits), probes, radiomics, references and Cox run. Centre alone 0.649
+  AUROC / 0.613 C-index, level with the best ViT (0.658 PET F3); ViT within-centre AUROC up
+  to 0.616; age and age + HPV near chance.
+- Within-centre C-index (D35, `cindex-within` blocks) and image + covariate blends (D36,
+  `nnfb-features combine` / `nnfb-cox combine`, `adjusted <task>` blocks). AUROC blends run
+  here (seconds each): HECKTOR 2022 image + centre up to 0.683 vs centre alone 0.649; UPENN
+  image + age up to 0.689 vs age alone 0.667. Cox blends left for the host (~10 min per
+  ViT pooling).
+- Cox blends (D36) on the host: HECKTOR 2022 image + centre C-index up to 0.657 (ViT PET
+  F3) vs centre alone 0.613 and image alone 0.637; UPENN image + age at most 0.629 vs age
+  alone 0.619 (no real gain).
+- Merged `main` (PR #1 merged: BraTS, UPENN, Valentin's HECKTOR 2022 and survival probes)
+  into `hecktor2022-rfs`. Our HECKTOR 2022 decisions renumbered D31-D33 -> D34-D36, the
+  2-year variant moved to `datasets/hecktor2022_rfs2y.py` (Valentin's task keeps
+  `hecktor2022.py`), the within-centre C-index of `nnfb-cox` runs now uses
+  `survival.within_group_cindex`. BraTS, UPENN and `hecktor22_*` tables regenerated with
+  the merged code: same numbers.
+
+### 2026-11-25
+- Official train/test split for HECKTOR 2022 (D37): tasks `<task>_official` for
+  `hecktor22_rfs_<pet|ct>` and `hecktor2022_rfs_<ct|pet>`, one fold (challenge training
+  cohort as train + val 80/20, test cohort CHB/MDA/USZ as test). `prepare` links the parent
+  task's crops, features and radiomics, so only the probes run again. The 2-year variant's
+  `cohort` column is now `official_split`, as in `hecktor2022.py`. The `hecktor22_*` and
+  `hecktor2022_*` generated blocks now name their tasks, so the `_official` tasks get their
+  own blocks. Unit-tested; to run on the host.
