@@ -12,7 +12,7 @@ as input channels, ROI handling, and how to pool features within a ROI.
 
 **Target: HECKTOR HPV classification at AUROC ≥ 0.99.**
 
-## Current status (2026-11-19)
+## Current status (2026-11-25)
 
 | Task | Data | Pipeline | Results |
 |------|------|----------|---------|
@@ -21,7 +21,7 @@ as input channels, ROI handling, and how to pool features within a ROI.
 | `mrnet_*` (9 tasks) | 1250 public exams on the NAS; all file sizes and 40 md5s checked | npy-to-NIfTI conversion and crop smoke-tested on 2 exams per plane | none yet |
 | `lld_mmri_malignant_*` (8 phases) | 498 patients x 8 series on the NAS, all files present | all 8 prepared: 498 cases, 266 malignant, no failures, no missing ROI | frozen probes and radiomics done for all 8 |
 | `stoic_severe`, `stoic_covid` | 2000 scans | both prepared: 2000 cases, no failures; `stoic_covid` links the crops, features and radiomics of `stoic_severe` | frozen probes and radiomics done for both |
-| `hecktor2022_rfs_ct`, `hecktor2022_rfs_pet` | HECKTOR 2022 train + test on the NAS, all checked: 827 patients with RFS, 174 relapses, 9 centres | preprocessing smoke-tested on 5 cases (PET and CT crops on the same grid, labels 1/2 kept); survival probe to write | none yet |
+| `hecktor2022_rfs_ct`, `hecktor2022_rfs_pet` | HECKTOR 2022 train + test on the NAS, all checked: 827 patients with RFS, 174 relapses, 9 centres | preprocessing smoke-tested on 5 cases (PET and CT crops on the same grid, labels 1/2 kept); Cox probe, C-index and per-ROI poolings written and smoke-tested on 30 cases (D27); `_official` variants registered (D37); prepare to run on the host | none yet |
 | `rsna_spine_fracture` | 2019 studies unpacked on the NAS, checked (961 positive) | prepare on the host stopped at 1792 of 2019 (tmux session killed 2026-11-18 08:13); rerun resumes | none yet |
 | `upenn_os_*` (4 sequences) | 452 patients on the NAS (`UPENN_GBM`) + OS labels placed by hand (`GBM-UPENN-OS`), all 4 sequences, a mask for each (145 expert) | all 4 prepared on the host: 452 cases, 226 survived 1 year, no failures, no missing ROI; identical labels and splits (D31) | probes, radiomics, age reference, Cox / C-index (D32), fusion (`upenn_os_fused`) done |
 | `hecktor22_rfs_pet`, `hecktor22_rfs_ct` | HECKTOR 2022 challenge on the NAS (training + test with ground truth, `data/raw/HECKTOR2022/`), 827 patients with RFS, all CT, PET and masks present | labels checked on real data (714 labelled, 692 with GTVp); prepare both prepared on the host: 692 cases, 134 positive, 22 without GTVp excluded, no failures; identical labels and splits (D34) | probes, radiomics, age / age+HPV / centre references, Cox / C-index done |
@@ -37,10 +37,12 @@ Next steps:
 4. HECKTOR 2022, our 2-year variant `hecktor22_rfs_*` (D34): probes, Cox, within-centre
    C-index (D35), image + covariate blends (D36) and PET + CT fusion done.
    Official challenge split (D37): `hecktor22_rfs_<pet|ct>_official`, to run on the host.
-5. HECKTOR 2022 RFS (D26): prepare both modalities on the host; meanwhile write the Cox
-   probe, the C-index (plain, within-centre) and the per-ROI poolings (GTVp, GTVn,
-   concatenation) are written (D27); then `scripts/run_probes.sh` on both tasks. Next:
-   PET + CT late fusion (M2-M4) and the official train -> test view.
+5. HECKTOR 2022 RFS (D26, D27): code done. On the host, in this order (an `_official`
+   task needs its parent prepared; it reuses the parent's features):
+   `prepare hecktor2022_rfs_ct`, `prepare hecktor2022_rfs_pet`, `run_probes.sh` on both,
+   then `prepare` and `run_probes.sh` on `hecktor2022_rfs_<pet|ct>_official` (D37).
+   Next: PET + CT late fusion (M2-M4, `nnfb-features fuse`). Compare with the 2-year
+   variant `hecktor22_rfs_*` (centre alone C-index 0.613).
 6. RSNA: resume `prepare rsna_spine_fracture`, then `RADIOMICS="original"
    scripts/run_probes.sh rsna_spine_fracture`.
 7. Fine-tuning baseline with glovita: `FOLDS=0 scripts/run_benchmark.sh hecktor_hpv_pet_gtvp`
@@ -825,6 +827,22 @@ No results yet.
 No results yet.
 <!-- end generated -->
 
+### hecktor2022_rfs_*_official (challenge train/test split, D37)
+
+Same patients, crops and features as `hecktor2022_rfs_*` (all 827 with RFS, crop on
+GTVp ∪ GTVn), one fold: the challenge's training cohort as train + val (80/20), its test
+cohort (CHB, MDA, USZ) as test. CHB and USZ are not in training, so the centre-only
+reference falls back to the overall rate there. C-index, then within-centre C-index;
+comparable with the challenge Task 2 leaderboard (about 0.68):
+
+<!-- generated: design hecktor2022_rfs_ct_official hecktor2022_rfs_pet_official -->
+No results yet.
+<!-- end generated -->
+
+<!-- generated: design-within hecktor2022_rfs_ct_official hecktor2022_rfs_pet_official -->
+No results yet.
+<!-- end generated -->
+
 ### kits_liver
 
 None yet.
@@ -1006,3 +1024,12 @@ None yet.
   `cohort` column is now `official_split`, as in `hecktor2022.py`. The `hecktor22_*` and
   `hecktor2022_*` generated blocks now name their tasks, so the `_official` tasks get their
   own blocks. Unit-tested; to run on the host.
+- Checked PR #2 (`hecktor2022-rfs`, merged into `main`): ruff clean, 90 tests pass. The
+  centre-only references handle the official test centres unseen in training (CHB, USZ:
+  overall rate, no crash, no leakage). `hecktor2022_rfs_*` stays survival-only on its
+  `_official` variant (Cox, C-index). Added generated blocks for
+  `hecktor2022_rfs_*_official`. Still open (D33): two Cox implementations
+  (`survival.fit_cox_probe`, `cox_probe.fit_cox`), same pipeline, to fold into one.
+- Note: `table --update` rebuilds every block from the local `outputs/results/`, which
+  holds only the results run on this machine; run it where all results are (or copy them
+  over first), or it empties the other tables.
