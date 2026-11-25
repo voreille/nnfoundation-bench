@@ -24,7 +24,7 @@ as input channels, ROI handling, and how to pool features within a ROI.
 | `hecktor2022_rfs_ct`, `hecktor2022_rfs_pet` | HECKTOR 2022 train + test on the NAS, all checked: 827 patients with RFS, 174 relapses, 9 centres | preprocessing smoke-tested on 5 cases (PET and CT crops on the same grid, labels 1/2 kept); survival probe to write | none yet |
 | `rsna_spine_fracture` | 2019 studies unpacked on the NAS, checked (961 positive) | prepare on the host stopped at 1792 of 2019 (tmux session killed 2026-11-18 08:13); rerun resumes | none yet |
 | `upenn_os_*` (4 sequences) | 452 patients on the NAS (`UPENN_GBM`) + OS labels placed by hand (`GBM-UPENN-OS`), all 4 sequences, a mask for each (145 expert) | all 4 prepared on the host: 452 cases, 226 survived 1 year, no failures, no missing ROI; identical labels and splits (D31) | probes, radiomics, age reference, Cox / C-index (D32), fusion (`upenn_os_fused`) done |
-| `hecktor22_rfs_pet`, `hecktor22_rfs_ct` | HECKTOR 2022 challenge on the NAS (training + test with ground truth, `data/raw/HECKTOR2022/`), 827 patients with RFS, all CT, PET and masks present | labels checked on real data (714 labelled, 692 with GTVp); prepare both prepared on the host: 692 cases, 134 positive, 22 without GTVp excluded, no failures; identical labels and splits (D34) | probes, radiomics, age / age+HPV / centre references, Cox / C-index done |
+| `hecktor22_rfs_pet`, `hecktor22_rfs_ct` | HECKTOR 2022 challenge on the NAS (training + test with ground truth, `data/raw/HECKTOR2022/`), 827 patients with RFS, all CT, PET and masks present | labels checked on real data (714 labelled, 692 with GTVp); prepare both prepared on the host: 692 cases, 134 positive, 22 without GTVp excluded, no failures; identical labels and splits (D34) | probes, radiomics, age / age+HPV / centre references, Cox / C-index done; official challenge split (`_official`, D37) done |
 | `brats_gbm_*` (4 sequences) | 1809 scans on the NAS, 1621 with seg; metadata xlsx read | all 4 prepared on the host: 632 cases, 384 GBM, no failures, no missing ROI; identical labels and splits (D28) | probes, radiomics, site and age references, fusion (`brats_gbm_fused`) done |
 
 Next steps:
@@ -36,7 +36,8 @@ Next steps:
    little over age (C-index 0.629 vs 0.619).
 4. HECKTOR 2022, our 2-year variant `hecktor22_rfs_*` (D34): probes, Cox, within-centre
    C-index (D35), image + covariate blends (D36) and PET + CT fusion done.
-   Official challenge split (D37): `hecktor22_rfs_<pet|ct>_official`, to run on the host.
+   Official challenge split (D37) done: ViT 0.678-0.690 single, 0.683-0.691 PET + CT fused;
+   radiomics level with it (0.662-0.667). Next: bootstrap CI on the single test set.
 5. HECKTOR 2022 RFS (D26): prepare both modalities on the host; meanwhile write the Cox
    probe, the C-index (plain, within-centre) and the per-ROI poolings (GTVp, GTVn,
    concatenation) are written (D27); then `scripts/run_probes.sh` on both tasks. Next:
@@ -808,21 +809,113 @@ PET + CT fusion (D30), every run:
 ### hecktor22_rfs_*_official (challenge train/test split, D37)
 
 Same patients, crops and features as `hecktor22_rfs_*`, one fold: the challenge's training
-cohort (7 centres) as train + val (80/20), its test cohort (CHB, MDA, USZ) as test. One test
-set, so no ± std; comparable in kind with the challenge Task 2 leaderboard (about 0.68
-C-index), which used all of RFS rather than our 2-year cohort. AUROC, within-centre AUROC,
-then the C-index:
+cohort (7 centres) as train + val, its test cohort (CHB, MDA, USZ) as test. 342 train, 86
+val, 264 test; 67 test positives (25%, vs 15% in train). CHB and USZ are not in training.
+One test set, so no ± std: with 67 positives and 197 negatives the AUROC standard error
+is about 0.04, so only differences above ~0.08 are clear. Comparable in kind with the
+challenge Task 2 leaderboard (about 0.68 C-index), which used all RFS patients rather than
+our 2-year cohort.
+
+Results, 2026-11-25:
+- **The ViT holds up on unseen centres:** ROI pooling 0.678-0.690 AUROC (PET F3 0.690, CT
+  F2 0.678), at or above the random splits (0.636-0.658); within-centre 0.606-0.642.
+  C-index 0.659-0.664 (PET F3, CT F3), near the leaderboard's ~0.68.
+- **Radiomics catches up:** R1 0.662-0.667 AUROC (random splits 0.60-0.61), within-centre
+  0.643-0.645, C-index 0.634-0.653. On this split the ViT and radiomics are level.
+- **PET + CT fusion helps a little:** the M2-M4 fusions (ROI mean) 0.683-0.691; the best of
+  the 9 ViT fusions, the mean of the ROI + 10 mm embeddings, 0.709 (0.662 within-centre), but
+  picking the best of 9 on one test set is optimistic. Radiomics fusion 0.671-0.673.
+- **The centre-only reference is weaker here** (0.641 AUROC, 0.621 C-index): a centre not
+  in training gets the overall training rate, so it can only separate MDA from the rest.
+  Age + centre falls to 0.544 (unseen centres get no centre column). Age alone is at chance.
+- **CT whole-crop ViT drops** (F1 0.562 vs ROI 0.678); PET does not (0.660). The CNN is
+  at chance throughout (0.49-0.55).
+
+AUROC, within-centre AUROC, C-index, within-centre C-index, then every fused run:
 
 <!-- generated: design hecktor22_*_official -->
-No results yet.
+| ID | hecktor22_rfs_ct_official | hecktor22_rfs_fused_official | hecktor22_rfs_pet_official |
+|----|---|---|---|
+| F1 | 0.487 (n=1) / 0.562 (n=1) | - / - | 0.530 (n=1) / 0.660 (n=1) |
+| F2 | 0.488 (n=1) / 0.678 (n=1) | - / - | 0.547 (n=1) / 0.654 (n=1) |
+| F3 | 0.490 (n=1) / 0.679 (n=1) | - / - | 0.554 (n=1) / 0.690 (n=1) |
+| T1 | - / - | - / - | - / - |
+| T1-last | - / - | - / - | - / - |
+| R1 | 0.667 (n=1) | - | 0.662 (n=1) |
+| M2 | - / - | 0.506 (n=1) / 0.691 (n=1) | - / - |
+| M3 | - / - | 0.506 (n=1) / 0.683 (n=1) | - / - |
+| M4 | - / - | 0.534 (n=1) / 0.690 (n=1) | - / - |
+| ref-age | 0.494 (n=1) | - | 0.494 (n=1) |
+| ref-age+site | 0.544 (n=1) | - | 0.544 (n=1) |
+| ref-age+hpv | 0.489 (n=1) | - | 0.489 (n=1) |
+| ref | 0.641 (n=1) | n/a | 0.641 (n=1) |
 <!-- end generated -->
 
 <!-- generated: design-within hecktor22_*_official -->
-No results yet.
+| ID | hecktor22_rfs_ct_official | hecktor22_rfs_fused_official | hecktor22_rfs_pet_official |
+|----|---|---|---|
+| F1 | 0.492 (n=1) / 0.578 (n=1) | - / - | 0.567 (n=1) / 0.624 (n=1) |
+| F2 | 0.506 (n=1) / 0.638 (n=1) | - / - | 0.546 (n=1) / 0.606 (n=1) |
+| F3 | 0.520 (n=1) / 0.613 (n=1) | - / - | 0.557 (n=1) / 0.642 (n=1) |
+| T1 | - / - | - / - | - / - |
+| T1-last | - / - | - / - | - / - |
+| R1 | 0.643 (n=1) | - | 0.645 (n=1) |
+| M2 | - / - | 0.518 (n=1) / 0.642 (n=1) | - / - |
+| M3 | - / - | 0.535 (n=1) / 0.641 (n=1) | - / - |
+| M4 | - / - | 0.541 (n=1) / 0.640 (n=1) | - / - |
+| ref-age | 0.452 (n=1) | - | 0.452 (n=1) |
+| ref-age+site | 0.452 (n=1) | - | 0.452 (n=1) |
+| ref-age+hpv | 0.456 (n=1) | - | 0.456 (n=1) |
+| ref | 0.500 (n=1) | n/a | 0.500 (n=1) |
 <!-- end generated -->
 
 <!-- generated: cindex hecktor22_*_official -->
-No results yet.
+| ID | hecktor22_rfs_ct_official | hecktor22_rfs_pet_official |
+|----|---|---|
+| F1 | 0.478 (n=1) / 0.535 (n=1) | 0.559 (n=1) / 0.637 (n=1) |
+| F2 | 0.510 (n=1) / 0.662 (n=1) | 0.484 (n=1) / 0.620 (n=1) |
+| F3 | 0.504 (n=1) / 0.664 (n=1) | 0.584 (n=1) / 0.659 (n=1) |
+| R1 | 0.653 (n=1) | 0.634 (n=1) |
+| ref-age | 0.505 (n=1) | 0.505 (n=1) |
+| ref-age+hpv | 0.502 (n=1) | 0.502 (n=1) |
+| ref-site | 0.621 (n=1) | 0.621 (n=1) |
+<!-- end generated -->
+
+<!-- generated: cindex-within hecktor22_*_official -->
+| ID | hecktor22_rfs_ct_official | hecktor22_rfs_pet_official |
+|----|---|---|
+| F1 | 0.503 (n=1) / 0.556 (n=1) | 0.587 (n=1) / 0.587 (n=1) |
+| F2 | 0.535 (n=1) / 0.631 (n=1) | 0.470 (n=1) / 0.580 (n=1) |
+| F3 | 0.540 (n=1) / 0.618 (n=1) | 0.588 (n=1) / 0.603 (n=1) |
+| R1 | 0.625 (n=1) | 0.622 (n=1) |
+| ref-age | 0.477 (n=1) | 0.477 (n=1) |
+| ref-age+hpv | 0.481 (n=1) | 0.481 (n=1) |
+| ref-site | 0.500 (n=1) | 0.500 (n=1) |
+<!-- end generated -->
+
+<!-- generated: runs hecktor22_rfs_fused_official -->
+| Run | Design | AUROC | Within-centre AUROC |
+|---|---|---|---|
+| `vit_fused_mean_roi_margin_mean_logreg` |  | 0.709 (n=1) | 0.662 (n=1) |
+| `vit_fused_concat_roi_margin_mean_logreg` |  | 0.701 (n=1) | 0.641 (n=1) |
+| `vit_fused_stack_roi_margin_mean_logreg` |  | 0.698 (n=1) | 0.647 (n=1) |
+| `vit_fused_concat_roi_mean_logreg` | M2 | 0.691 (n=1) | 0.642 (n=1) |
+| `vit_fused_stack_roi_mean_logreg` | M4 | 0.690 (n=1) | 0.640 (n=1) |
+| `vit_fused_mean_roi_mean_logreg` | M3 | 0.683 (n=1) | 0.641 (n=1) |
+| `radiomics_original_fused_stack_logreg` |  | 0.673 (n=1) | 0.652 (n=1) |
+| `radiomics_original_fused_concat_logreg` |  | 0.671 (n=1) | 0.653 (n=1) |
+| `vit_fused_stack_mean_logreg` |  | 0.653 (n=1) | 0.609 (n=1) |
+| `vit_fused_concat_mean_logreg` |  | 0.649 (n=1) | 0.577 (n=1) |
+| `vit_fused_mean_mean_logreg` |  | 0.611 (n=1) | 0.592 (n=1) |
+| `cnn_fused_concat_mean_logreg` |  | 0.541 (n=1) | 0.572 (n=1) |
+| `cnn_fused_stack_roi_mean_logreg` | M4 | 0.534 (n=1) | 0.541 (n=1) |
+| `cnn_fused_stack_roi_margin_mean_logreg` |  | 0.520 (n=1) | 0.537 (n=1) |
+| `cnn_fused_mean_roi_margin_mean_logreg` |  | 0.516 (n=1) | 0.541 (n=1) |
+| `cnn_fused_mean_mean_logreg` |  | 0.513 (n=1) | 0.519 (n=1) |
+| `cnn_fused_concat_roi_mean_logreg` | M2 | 0.506 (n=1) | 0.518 (n=1) |
+| `cnn_fused_mean_roi_mean_logreg` | M3 | 0.506 (n=1) | 0.535 (n=1) |
+| `cnn_fused_stack_mean_logreg` |  | 0.501 (n=1) | 0.514 (n=1) |
+| `cnn_fused_concat_roi_margin_mean_logreg` |  | 0.499 (n=1) | 0.513 (n=1) |
 <!-- end generated -->
 
 ### kits_liver
@@ -1006,3 +1099,9 @@ None yet.
   `cohort` column is now `official_split`, as in `hecktor2022.py`. The `hecktor22_*` and
   `hecktor2022_*` generated blocks now name their tasks, so the `_official` tasks get their
   own blocks. Unit-tested; to run on the host.
+- `hecktor2022-rfs` merged into `main` (PR #2). Official split run on lxbelwahoo: prepare
+  linked the parent tasks (342 train / 86 val / 264 test, 67 test positives), then probes,
+  references, Cox and PET + CT fusion; no errors. ViT ROI pooling 0.678-0.690 AUROC on the
+  challenge test cohort (two unseen centres), radiomics 0.662-0.667, centre alone 0.641,
+  PET + CT ViT fusion 0.683-0.691 (M2-M4). C-index up to 0.664 (ViT CT F3). Tables generated on
+  lxbelwahoo (official blocks only, its outputs/ being partial).
