@@ -1050,3 +1050,14 @@ None yet.
   pinned). `nnfb-features extract --model dinov2|dinov2_3p` runs it slice by slice on the
   QC crops (HU / SUV), the existing poolings and probes apply; design rows B1-B6.
   Smoke-tested on 3 HECKTOR HPV cases on the GPU (claude-box CUDA works again).
+
+### 2026-11-26
+- DINOv2 2D baseline (D38) on `lld_mmri_malignant_delay` (host run 2026-11-25): axial ROI
+  mean (B2) 0.899 ± 0.018, above the nnFoundation ViT ROI mean (F2) 0.867 ± 0.014 on all
+  5 splits (+0.006 to +0.069) and above radiomics R1 0.823. Three planes (B5) 0.866, level
+  with F2; whole crop B1 0.692 / B4 0.722 vs F1 0.664; ROI + 10 mm B3 0.835 / B6 0.792 vs
+  F3 0.778. B5 uses the ViT's 24³ grid and ties with it, while B2 pools on 1 x 8 x 8 mm
+  cells: part of the gain may be the finer ROI weighting rather than the encoder. The
+  coronal and sagittal slices cut across the thick MR slices, which may explain B5 < B2.
+  Generated grids not rebuilt yet (the other tasks' results are not all on this machine).
+
