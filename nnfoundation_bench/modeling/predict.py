@@ -245,6 +245,9 @@ DESIGN_RUNS = {
         for k, m in enumerate(("dinov2", "dinov2_3p"))
         for i, pool in enumerate(("mean", "roi_mean", "roi_margin_mean"), start=1)
     },
+    # B2 and B5 over L2-normalised tokens (D39).
+    "B8": lambda p: f"dinov2_frozen_roi_mean_l2_{p}",
+    "B9": lambda p: f"dinov2_3p_frozen_roi_mean_l2_{p}",
     # Late fusion of per-modality ROI-mean embeddings (D14, D30), on a fused task
     # (``nnfb-features fuse``): concatenation, mean, score stacking on val.
     "M2": lambda m, p: f"{m}_fused_concat_roi_mean_{p}",
@@ -379,6 +382,8 @@ COX_DESIGN_RUNS = {
         for k, m in enumerate(("dinov2", "dinov2_3p"))
         for i, pool in enumerate(("mean", "roi_mean", "roi_margin_mean"), start=1)
     },
+    "B8": lambda p: "dinov2_frozen_roi_mean_l2_cox",
+    "B9": lambda p: "dinov2_3p_frozen_roi_mean_l2_cox",
     "ref-age": lambda p: "covariates_age_cox",
     "ref-age+hpv": lambda p: "covariates_age_hpv_cox",
     "ref-site": lambda p: "covariates_group_cox",

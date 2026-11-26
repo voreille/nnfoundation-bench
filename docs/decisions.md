@@ -751,3 +751,23 @@ Merges D27 (Valentin: survival probes in `nnfb-features probe`) with D31/D32 (ou
   DINOv2 was trained at 518 px with patch 14 and runs here at 336 px (position embeddings
   interpolated); pooling is over the axial map at full z resolution for `dinov2`, so a ROI
   cell is 1 x 8 x 8 mm there and 8 mm³ for `dinov2_3p`.
+
+## D39. L2-normalised patch tokens for the 2D slice encoders (active, 2026-11-26)
+- **Choice:** for `dinov2` and `dinov2_3p` (D38), every pooling is also computed over the
+  patch tokens scaled to unit L2 norm (`<pooling>_l2`: `mean_l2`, `roi_mean_l2`,
+  `roi_margin_mean_l2`, per named ROI; not the concatenation), in the same forward pass.
+  Rows B8 (B2 + L2) and B9 (B5 + L2). The probe is unchanged (median imputation,
+  standardisation over train cases). `extract` re-extracts any feature file that lacks
+  one of the task's poolings.
+- **Why:** in a weighted mean, tokens with a large norm pull the average towards them.
+  Large ViTs such as DINOv2 turn some background patch tokens into high-norm global
+  "scratch" tokens (Darcet et al. 2023, "Vision Transformers Need Registers"); the
+  register variant we use mostly removes them, but L2 normalisation guards against any
+  that remain and makes every token count by its ROI fraction alone. Standard and cheap.
+- **Rejected for now (backlog):** smoothing along z, per-slice centring, PCA whitening.
+  The ROI mean already averages over many slices, so they are expected to matter less;
+  they wait for B8/B9.
+- **Open:** on 3 LLD-MMRI delay cases the token norms are uniform (median ~23, max ~27),
+  so B8/B9 may barely differ from B2/B5. Not applied to the nnFoundation features
+  (re-extraction of every task; only if B8/B9 beat B2/B5 clearly).
+

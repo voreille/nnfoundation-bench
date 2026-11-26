@@ -55,3 +55,43 @@ def test_design_rows_for_the_2d_baseline():
     assert ids["vit_frozen_mean_logreg"] == "F1"
     grid = design_table({"t": pd.Series({"dinov2_3p_frozen_mean_cox": "0.6"})}, kinds={"t": "cox"})
     assert "| B4 | 0.6 |" in grid
+
+
+def test_l2_poolings_weigh_every_token_the_same():
+    import torch
+
+    from nnfoundation_bench.modeling.features import pool_features
+
+    rng = np.random.default_rng(0)
+    fmap = rng.normal(size=(8, 4, 4, 4)).astype(np.float32)
+    fmap[:, 0, 0, 0] *= 100.0  # one high-norm token
+    mask = np.zeros((8, 8, 8), np.uint8)
+    mask[:2, :2, :2] = 1  # covers cell (0, 0, 0) only
+    mask[2:4, :2, :2] = 2  # cell (1, 0, 0)
+    pooled = pool_features(fmap, mask, ((1, "gtvp"), (2, "gtvn")), l2=True)
+    unit = fmap / np.linalg.norm(fmap, axis=0, keepdims=True)
+    assert np.allclose(pooled["mean_l2"], unit.reshape(8, -1).mean(1), atol=1e-6)
+    assert np.allclose(pooled["gtvp_mean_l2"], unit[:, 0, 0, 0], atol=1e-6)
+    assert np.allclose(pooled["roi_mean_l2"], unit[:, :2, 0, 0].mean(1), atol=1e-6)
+    assert np.allclose(pooled["roi_mean"], fmap[:, :2, 0, 0].mean(1), atol=1e-5)
+    # A tensor gives the same vectors.
+    on_device = pool_features(torch.from_numpy(fmap), mask, ((1, "gtvp"), (2, "gtvn")), l2=True)
+    assert on_device.keys() == pooled.keys()
+    assert all(np.allclose(on_device[k], pooled[k], atol=1e-5) for k in pooled)
+    assert "roi_mean_l2" not in pool_features(fmap, mask)
+
+
+def test_slice_encoders_also_probe_l2_poolings(tmp_path):
+    from nnfoundation_bench.modeling.features import _missing_keys, task_poolings
+
+    assert task_poolings("lld_mmri_malignant_delay", "vit") == (
+        "mean", "roi_mean", "roi_margin_mean",
+    )  # fmt: skip
+    assert "roi_mean_l2" in task_poolings("lld_mmri_malignant_delay", "dinov2")
+    hecktor = task_poolings("hecktor2022_rfs_pet", "dinov2_3p")
+    assert "gtvn_mean_l2" in hecktor and "roi_concat_mean_l2" not in hecktor
+    path = tmp_path / "c.npz"
+    np.savez(path, roi_mean=np.zeros(2))
+    assert _missing_keys(path, ["roi_mean", "roi_mean_l2"])
+    assert not _missing_keys(path, ["roi_mean"])
+    assert _missing_keys(tmp_path / "absent.npz", ["roi_mean"])

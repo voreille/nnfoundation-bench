@@ -96,6 +96,24 @@ would trigger it. Move an item to "Next steps" when it is picked up.
 - **Silence TotalSegmentator's "Output affine not equal" warning** by snapping the
   temporary 3 mm image's origin to float32-exact values (a sub-micrometre shift). Harmless,
   but about 15 lines per case in the logs.
+- **2D baseline (D38, D39), variants for later.** Each is an extra pooling or input option
+  of `nnfb-features extract --model dinov2*`, one re-extraction per task.
+  *Trigger:* B2/B5 results on several tasks (LLD-MMRI phases, one CT task), and for the
+  first item, whether DINOv2 keeps beating the ViT. In rough order:
+  - **Pooling-grid check:** the axial map averaged over blocks of 8 slices to the ViT's
+    24³ grid before ROI pooling. Separates the encoder from the finer pooling grid
+    (1 x 8 x 8 mm for B2 vs 8 mm³ for F2) in the B2 > F2 gap.
+  - **CT window per task:** a lung window for STOIC (the soft-tissue window W400/L40
+    flattens lung tissue); or three CT windows as the RGB channels.
+  - **Smoothing along z:** average each token with its neighbours over 3-5 slices before
+    pooling (expected small: the ROI mean already averages over slices).
+  - **Per-slice centring:** subtract each slice's mean token (removes what the whole slice
+    shares, e.g. position along z; may also remove signal).
+  - **PCA whitening fit on train** (overlaps with the probe's standardisation).
+  - **Neighbouring slices as RGB** (z-1, z, z+1): 3D context in one pass, but not the RGB
+    statistics the model was trained on.
+  - **Larger slices** (512 px, ~5.5 mm tokens) for small ROIs (GTVn); **CLS token** of the
+    ROI slices as an extra row.
 - **Erase the centre from the features (LEACE, Belrose et al. 2023)** with a linear eraser
   fit per fold on train, then probe. Within-centre AUROC (D24) already removes the centre
   from the *metric*; LEACE would remove it from the *features*, which matters if centre-free
@@ -156,6 +174,8 @@ runs stay in the per-task runs tables).
 | B5 | Baseline (2D, 3 planes) | B4, mean over the ROI | `dinov2_3p_frozen_roi_mean_<p>` | MRNet n/a | ready |
 | B6 | Baseline (2D, 3 planes) | B4, mean over the ROI + 10 mm | `dinov2_3p_frozen_roi_margin_mean_<p>` | MRNet n/a | ready |
 | B7 | Baseline (2D) | DINOv3 ViT-L/16 in place of DINOv2 (access to the gated weights pending) |  | all | planned |
+| B8 | Baseline (2D, token norm) | B2 over L2-normalised patch tokens: every token weighs the same, only its direction counts (D39); also `mean_l2`, `roi_margin_mean_l2` (and per named ROI) in the runs tables | `dinov2_frozen_roi_mean_l2_<p>` | MRNet n/a | ready |
+| B9 | Baseline (2D, token norm) | B5 over L2-normalised patch tokens (D39) | `dinov2_3p_frozen_roi_mean_l2_<p>` | MRNet n/a | ready |
 | S1 | Input size | Fixed 192³ at 1 mm (current preprocessing; same as F1-F3) | see F1-F3 | all | ready |
 | S2 | Input size | Native 1 mm, input size = FOV; ViT absolute position embedding interpolated (glovita default) |  | all | planned |
 | S3 | Input size | Same as S2, but the ViT absolute position embedding is cut out (FOV < 192) instead of interpolated, consistent with RoPE; CNN n/a |  | all | planned |
@@ -1069,4 +1089,11 @@ None yet.
   CPU pooling of the ~450 MB axial map, two extractions in parallel. Pooling now runs on
   the GPU on the map in place (same features, relative difference ~1e-7): ~2 s per case,
   of which ~1.4 s is the 10 mm dilation on the CPU.
+- L2-normalised token poolings for the 2D slice encoders (D39, rows B8, B9): computed in
+  the same pass as the plain ones (`<pooling>_l2` keys). `extract` now re-extracts
+  feature files that lack a pooling, so the next `run_probes.sh` on delay, venous and T2
+  recomputes them without `--overwrite`. On 3 delay cases the DINOv2 token norms are
+  uniform (median ~23, max ~27, no high-norm outliers), so L2 changes each token's weight
+  by ~10%: expect B8/B9 close to B2/B5. Other 2D variants (z smoothing, per-slice
+  centring, PCA whitening, pooling-grid check, CT windows) parked in the backlog.
 
