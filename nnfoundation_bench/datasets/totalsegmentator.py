@@ -22,7 +22,7 @@ Raw data (registration-free, Zenodo; placed by hand, ``download`` only checks it
 """
 
 from collections import Counter
-from functools import partial
+from functools import cache, partial
 from pathlib import Path
 
 import pandas as pd
@@ -123,13 +123,18 @@ def scan_paths(source: str, scan_id: str) -> tuple[Path, Path]:
     return scan_dir / DATASETS[source][1], scan_dir / "segmentations"
 
 
+def most_common_structures(structure_sets) -> tuple[str, ...]:
+    """The structure set most scans have (the label-map id table of ``prepare``)."""
+    return Counter(structure_sets).most_common(1)[0][0]
+
+
+@cache
 def common_structures(source: str) -> tuple[str, ...]:
-    """The structure set most subjects have (the label-map id table of ``prepare``)."""
+    """``most_common_structures`` over every subject of SOURCE on disk."""
     subjects = _subjects(dataset_dir(source))
     if not subjects:
         download(source)  # raises with the instructions
-    sets = Counter(structure_classes(s / "segmentations") for s in subjects)
-    return sets.most_common(1)[0][0]
+    return most_common_structures(structure_classes(s / "segmentations") for s in subjects)
 
 
 def ct_classes() -> tuple[str, ...]:

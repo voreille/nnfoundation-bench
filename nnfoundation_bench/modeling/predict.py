@@ -61,13 +61,16 @@ def multiclass_metrics(labels: np.ndarray, proba: np.ndarray, classes) -> dict:
     labels, classes = np.asarray(labels), np.asarray(classes)
     pred = classes[np.asarray(proba).argmax(1)]
     column = {c: i for i, c in enumerate(classes.tolist())}
-    present = np.unique(labels)
-    if len(present) > 1:
-        aucs = [roc_auc_score(labels == k, proba[:, column[k]]) for k in present.tolist()]
+    present = np.unique(labels).tolist()
+    auroc_macro = (
+        float(np.mean([roc_auc_score(labels == k, proba[:, column[k]]) for k in present]))
+        if len(present) > 1
+        else float("nan")
+    )
     return {
         "balanced_accuracy": balanced_accuracy(labels, pred),
         "accuracy": float(np.mean(pred == labels)),
-        "auroc_macro": float(np.mean(aucs)) if len(present) > 1 else float("nan"),
+        "auroc_macro": auroc_macro,
         "n": len(labels),
         "n_classes": len(classes),
     }
@@ -331,21 +334,20 @@ def auroc_stats(task: str, within_group: bool = False) -> pd.DataFrame:
         return metric_stats(task, key)
     if (groups := task_groups(task)) is None:
         return empty
-    else:
-        rows = []
-        for path in (RESULTS_DIR / task).glob("*/fold*/predictions.csv"):
-            cases = pd.read_csv(path, dtype={"case_id": str})
-            if "score" not in cases:  # nnfb-cox runs (D32): ``risk``, no class score
-                continue
-            group = cases["case_id"].map(groups).to_numpy()
-            score = cases["score"].to_numpy()
-            if key == "cindex":
-                value = within_group_cindex(
-                    cases["event"].to_numpy(), cases["time"].to_numpy(), score, group
-                )
-            else:
-                value = within_group_auroc(cases["label"].to_numpy(), score, group)
-            rows.append({"run": path.parent.parent.name, key: value})
+    rows = []
+    for path in (RESULTS_DIR / task).glob("*/fold*/predictions.csv"):
+        cases = pd.read_csv(path, dtype={"case_id": str})
+        if "score" not in cases:  # nnfb-cox runs (D32): ``risk``, no class score
+            continue
+        group = cases["case_id"].map(groups).to_numpy()
+        score = cases["score"].to_numpy()
+        if key == "cindex":
+            value = within_group_cindex(
+                cases["event"].to_numpy(), cases["time"].to_numpy(), score, group
+            )
+        else:
+            value = within_group_auroc(cases["label"].to_numpy(), score, group)
+        rows.append({"run": path.parent.parent.name, key: value})
     if not rows:
         return empty
     return pd.DataFrame(rows).groupby("run")[key].agg(["mean", "std", "count"])
@@ -619,6 +621,12 @@ def update_generated(text: str, render=render_block) -> str:
     return GENERATED_BLOCK.sub(lambda m: f"{m['open']}{render(m['spec'])}\n{m['close']}", text)
 
 
+def _organ_tasks_only(pattern: str) -> list[str]:
+    """Registered tasks matching the glob ``pattern`` if they are all organ tasks, else []."""
+    matched = [n for n in TASKS if fnmatch(n, pattern)]
+    return matched if matched and all(TASKS[n].organ_task for n in matched) else []
+
+
 @app.command()
 def table(
     tasks: Annotated[
@@ -641,18 +649,15 @@ def table(
         update.write_text(update_generated(update.read_text()))
         logger.success(f"Updated the generated tables of {update}")
         return
+    # Patterns that select organ tasks alone get the multiclass grid (they have no centres,
+    # so --within refuses them); broader ones (``*_official``) are fine, the design grids
+    # skip organ tasks.
+    organ = {p: _organ_tasks_only(p) for p in tasks or []}
     if within:
-        # A pattern that selects only organ tasks asks for something they do not have; a
-        # broader one (``*_official``) is fine, design-within skips organ tasks.
-        for pattern in tasks or []:
-            matched = [n for n in TASKS if fnmatch(n, pattern)]
-            if matched and all(TASKS[n].organ_task for n in matched):
-                refuse_organ_tasks(*matched, what="within-centre AUROC")
-    organ_only = bool(tasks) and all(
-        (matched := [n for n in TASKS if fnmatch(n, t)])
-        and all(TASKS[n].organ_task for n in matched)
-        for t in tasks
-    )
+        refuse_organ_tasks(
+            *(n for names in organ.values() for n in names), what="within-centre AUROC"
+        )
+    organ_only = bool(tasks) and all(organ.values())
     kind = "multiclass" if organ_only else "design-within" if within else "design"
     typer.echo(render_block(" ".join([kind, *(tasks or [])])))
 

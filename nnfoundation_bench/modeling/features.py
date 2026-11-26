@@ -218,7 +218,7 @@ def organ_crop(
 
 
 def _crop_cases(root: Path, cases: list[str]):
-    """(case, image (1, z, y, x), mask (z, y, x)) of the prepared 192^3 crops."""
+    """(case, image (1, z, y, x), mask (z, y, x), {}) of the prepared 192^3 crops."""
     for case in cases:
         image = _read_b2nd(root / "images" / f"{case}.b2nd")
         yield case, image, _read_b2nd(root / "masks" / f"{case}.b2nd")[0], {}

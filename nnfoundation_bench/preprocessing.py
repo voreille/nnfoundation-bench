@@ -8,7 +8,6 @@ Organ tasks (D38) use a scan layout instead: whole scans at 1 mm plus a label ma
 
 import json
 import os
-from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -31,7 +30,11 @@ from nnfoundation_bench.config import (
     TARGET_SPACING_MM,
 )
 from nnfoundation_bench.datasets.base import CaseInputs, ClassificationTask
-from nnfoundation_bench.datasets.totalsegmentator import organ_samples, structure_classes
+from nnfoundation_bench.datasets.totalsegmentator import (
+    most_common_structures,
+    organ_samples,
+    structure_classes,
+)
 
 Point = tuple[float, float, float]
 IDENTITY = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
@@ -135,14 +138,16 @@ def merge_label_map(seg_dir: Path, classes: tuple[str, ...]) -> tuple[sitk.Image
     out, reference, overlap = None, None, 0
     for label_id, name in enumerate(classes, start=1):
         mask = sitk.ReadImage(seg_dir / f"{name}.nii.gz")
-        inside = sitk.GetArrayViewFromImage(mask) > 0
+        view = sitk.GetArrayViewFromImage(mask)
         if out is None:
-            out, reference = np.zeros(inside.shape, np.uint8), mask
-        elif inside.shape != out.shape:
-            raise ValueError(f"{name}: mask shape {inside.shape} differs from {out.shape}")
-        taken = inside & (out > 0)
-        overlap += int(taken.sum())
-        out[inside & ~taken] = label_id
+            out, reference = np.zeros(view.shape, np.uint8), mask
+        elif view.shape != out.shape:
+            raise ValueError(f"{name}: mask shape {view.shape} differs from {out.shape}")
+        flat = out.reshape(-1)  # a view: organs are small, so work on their voxels only
+        idx = np.flatnonzero(view)
+        current = flat[idx]
+        overlap += int(np.count_nonzero(current))
+        flat[idx[current == 0]] = label_id
     label_map = sitk.GetImageFromArray(out)
     label_map.CopyInformation(reference)
     return label_map, overlap
@@ -223,6 +228,11 @@ def official_split(
 def _scan_groups(samples: pd.DataFrame) -> pd.Series:
     """scan_id -> sorted list of its case_ids."""
     return samples.groupby("scan_id")["case_id"].agg(sorted)
+
+
+def _scans_per_split(split: dict[str, list[str]]) -> dict[str, int]:
+    """Number of scans in each part of a split of ``<scan>__<organ>`` case IDs."""
+    return {k: len({c.split("__")[0] for c in v}) for k, v in split.items()}
 
 
 def _expand(groups: pd.Series, scans) -> list[str]:
@@ -363,7 +373,7 @@ def _official_scan_variant(
         else "one fold: official train (80% train, 20% val, by scan) / official test",
         "split_seeds": [seed],
         "cases_per_fold": [{k: len(v) for k, v in split.items()}],
-        "scans_per_fold": [{k: len({c.split("__")[0] for c in v}) for k, v in split.items()}],
+        "scans_per_fold": [_scans_per_split(split)],
     }
     (out_dir / "dataset.json").write_text(json.dumps(summary, indent=2))
     logger.success(f"{task.name}: official split of {task.split_of} -> {out_dir}")
@@ -531,12 +541,9 @@ def _process_scan(
     out_dir: Path,
     qc_dir: Path,
 ) -> dict:
-    """Resample one scan and its merged label map to 1 mm; returns its scans.csv row and
-    organs.csv rows."""
+    """Resample one scan and its merged label map (``structures``, already checked against
+    the scan's files) to 1 mm; returns its scans.csv row and organs.csv rows."""
     image_path, seg_dir = task.scan_paths(scan_id)
-    if (found := structure_classes(seg_dir)) != structures:
-        missing, extra = sorted(set(structures) - set(found)), sorted(set(found) - set(structures))
-        raise ValueError(f"different structure set: missing {missing}, extra {extra}")
     image = sitk.Cast(sitk.ReadImage(image_path), sitk.sitkFloat32)
     if task.intensity_min is not None:
         image = sitk.Maximum(image, float(task.intensity_min))
@@ -603,28 +610,31 @@ def prepare_scan_task(
     meta = task.load_scans()
     meta["scan_id"] = meta["scan_id"].astype(str)
     scan_ids = sorted(meta["scan_id"])
-    structure_sets = Counter(structure_classes(task.scan_paths(s)[1]) for s in scan_ids)
-    structures = structure_sets.most_common(1)[0][0]
+    found = {s: structure_classes(task.scan_paths(s)[1]) for s in scan_ids}
+    structures = most_common_structures(found.values())
     classes = task.organ_classes()
+    seeds = [seed + i for i in range(n_splits)]
     records, failed = {}, {}
     for scan_id in tqdm(scan_ids, desc=task.name):
         record_path = qc_dir / "scans" / f"{scan_id}.json"
-        done = all(
-            p.exists()
-            for p in (record_path, out_dir / "images" / f"{scan_id}.b2nd",
-                      out_dir / "masks" / f"{scan_id}.b2nd")
-        )  # fmt: skip
-        if done and not overwrite:
+        outputs = (
+            record_path,
+            out_dir / "images" / f"{scan_id}.b2nd",
+            out_dir / "masks" / f"{scan_id}.b2nd",
+        )
+        if all(p.exists() for p in outputs) and not overwrite:
             records[scan_id] = json.loads(record_path.read_text())
             continue
         try:
+            if found[scan_id] != structures:
+                missing = sorted(set(structures) - set(found[scan_id]))
+                extra = sorted(set(found[scan_id]) - set(structures))
+                raise ValueError(f"different structure set: missing {missing}, extra {extra}")
             records[scan_id] = _process_scan(task, scan_id, structures, out_dir, qc_dir)
         except Exception as e:  # noqa: BLE001 - one bad scan must not stop the run
             logger.exception(f"{scan_id}: preprocessing failed")
             failed[scan_id] = f"{type(e).__name__}: {e}"
-            # A later rerun must not take the scan's previous outputs as finished.
-            for stale in (record_path, out_dir / "images" / f"{scan_id}.b2nd",
-                          out_dir / "masks" / f"{scan_id}.b2nd"):  # fmt: skip
+            for stale in outputs:  # a later rerun must not take them as finished
                 stale.unlink(missing_ok=True)
             continue
         record_path.write_text(json.dumps(records[scan_id], indent=1))
@@ -645,7 +655,7 @@ def prepare_scan_task(
     samples.to_csv(out_dir / "labels.csv", index=False)
     with open(out_dir / "labels.json", "w") as f:
         json.dump(samples.set_index("case_id")["label"].astype(int).to_dict(), f, indent=1)
-    splits = [scan_splits(samples, seed=seed + i) for i in range(n_splits)]
+    splits = [scan_splits(samples, seed=s) for s in seeds]
     with open(out_dir / "splits.json", "w") as f:
         json.dump(splits, f, indent=1)
 
@@ -673,14 +683,12 @@ def prepare_scan_task(
         "excluded_classes": [c for c in classes if c not in kept],
         "class_counts": {name: int(counts[name]) for name in kept},
         "label_map_ids": {str(i): name for i, name in enumerate(structures, start=1)},
-        "split_seeds": [seed + i for i in range(n_splits)],
+        "split_seeds": seeds,
         "num_scans": len(records),
         "num_cases": len(samples),
         "failed": failed,
         "cases_per_fold": [{k: len(v) for k, v in s.items()} for s in splits],
-        "scans_per_fold": [
-            {k: len({c.split("__")[0] for c in v}) for k, v in s.items()} for s in splits
-        ],
+        "scans_per_fold": [_scans_per_split(s) for s in splits],
     }
     with open(out_dir / "dataset.json", "w") as f:
         json.dump(summary, f, indent=2)
