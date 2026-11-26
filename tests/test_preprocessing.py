@@ -2,6 +2,7 @@ import json
 
 import numpy as np
 import pandas as pd
+import pytest
 import SimpleITK as sitk
 
 from nnfoundation_bench.preprocessing import (
@@ -231,3 +232,216 @@ def test_official_variants_are_registered():
     for name in ("hecktor22_rfs_pet", "hecktor22_rfs_ct", "hecktor2022_rfs_pet"):
         task = get_task(f"{name}_official")
         assert task.split_of == name and task.roi_names == get_task(name).roi_names
+
+
+# ------------------------------------------------------------ organ tasks (issue #4)
+
+
+def _write_mask(path, array, spacing=(1.5, 1.5, 2.0), origin=(1.0, 2.0, 3.0)):
+    image = sitk.GetImageFromArray(array.astype(np.uint8))
+    image.SetSpacing(spacing)
+    image.SetOrigin(origin)
+    sitk.WriteImage(image, path)
+
+
+def test_merge_label_map_uses_the_id_table_and_counts_overlap(tmp_path):
+    from nnfoundation_bench.preprocessing import merge_label_map
+
+    shape = (6, 8, 10)
+    a, b, c = (np.zeros(shape, np.uint8) for _ in range(3))
+    a[0:2, 0:3, 0:4] = 1
+    b[1:3, 2:5, 3:6] = 1  # shares the voxel (z 1, y 2, x 3) with a
+    b[0:2, 0:3, 0] = 1  # and 6 more voxels
+    c[4:6, 6:8, 8:10] = 1
+    overlap = int((a & b).sum())
+    for name, array in (("alpha", a), ("beta", b), ("gamma", c)):
+        _write_mask(tmp_path / f"{name}.nii.gz", array)
+
+    label_map, n_overlap = merge_label_map(tmp_path, ("alpha", "beta", "gamma"))
+    out = sitk.GetArrayFromImage(label_map)
+    assert label_map.GetPixelID() == sitk.sitkUInt8
+    assert label_map.GetSpacing() == (1.5, 1.5, 2.0) and label_map.GetOrigin() == (1.0, 2.0, 3.0)
+    assert n_overlap == overlap == 7
+    assert (out[a.astype(bool)] == 1).all()  # overlap goes to the first class
+    assert (out[b.astype(bool) & ~a.astype(bool)] == 2).all()
+    assert (out[c.astype(bool)] == 3).all()
+    assert (out[~(a | b | c).astype(bool)] == 0).all()
+
+
+def _marked_image(direction):
+    array = np.full((16, 24, 20), -100.0, np.float32)  # z, y, x
+    array[6:10, 10:14, 8:12] = 700.0
+    image = sitk.GetImageFromArray(array)
+    image.SetSpacing((1.5, 1.25, 2.0))
+    image.SetOrigin((-10.0, 4.0, 7.0))
+    image.SetDirection(direction)
+    return image
+
+
+def _corners(image):
+    size = np.array(image.GetSize()) - 1
+    return np.array(
+        [
+            image.TransformContinuousIndexToPhysicalPoint((size * np.array(c)).tolist())
+            for c in np.ndindex(2, 2, 2)
+        ]
+    )
+
+
+def test_resample_whole_gives_1mm_lps_grid_covering_the_scan():
+    from nnfoundation_bench.preprocessing import IDENTITY, resample_whole
+
+    image = _marked_image((0, 0, 1, 0, 1, 0, -1, 0, 0))  # permuted axes, as in KiTS
+    out = resample_whole(image, interpolator=sitk.sitkNearestNeighbor, pad_value=-1024)
+    assert out.GetDirection() == IDENTITY
+    assert out.GetSpacing() == (1.0, 1.0, 1.0)
+    lo, hi = _corners(image).min(0), _corners(image).max(0)
+    out_lo, out_hi = _corners(out).min(0), _corners(out).max(0)
+    assert np.all(out_lo <= lo + 1.0) and np.all(out_hi >= hi - 1.0)
+    assert np.all(out_lo >= lo - 1.5) and np.all(out_hi <= hi + 1.5)  # no large margin
+    # The marked block is at the same physical place.
+    centre = image.TransformContinuousIndexToPhysicalPoint((9.5, 11.5, 7.5))
+    assert out.GetPixel(out.TransformPhysicalPointToIndex(centre)) == 700.0
+    values = set(np.unique(sitk.GetArrayFromImage(out)).tolist())
+    assert values == {-100.0, 700.0}  # axis-aligned: no padding needed
+
+
+def test_resample_whole_pads_outside_a_rotated_field_of_view():
+    from nnfoundation_bench.preprocessing import IDENTITY, resample_whole
+
+    angle = np.deg2rad(30)
+    c, s = np.cos(angle), np.sin(angle)
+    image = _marked_image((c, -s, 0, s, c, 0, 0, 0, 1))
+    for pad in (-1024.0, 0.0):  # CT air, MRI 0
+        out = resample_whole(image, interpolator=sitk.sitkLinear, pad_value=pad)
+        array = sitk.GetArrayFromImage(out)
+        assert out.GetDirection() == IDENTITY
+        assert array[0, 0, 0] == pad and array[-1, -1, -1] == pad  # bbox corners
+        assert array.max() == pytest.approx(700.0)
+
+
+def _samples(n_scans=20, seed=0):
+    rng = np.random.default_rng(seed)
+    rows = []
+    for i in range(n_scans):
+        for organ in ("aorta", "heart", "liver", "spleen")[: rng.integers(1, 5)]:
+            rows.append({"case_id": f"s{i:04d}__{organ}", "scan_id": f"s{i:04d}"})
+    return pd.DataFrame(rows)
+
+
+def _scan_sets(split):
+    return {k: {c.split("__")[0] for c in v} for k, v in split.items()}
+
+
+def test_scan_splits_keep_every_scan_in_one_split():
+    from nnfoundation_bench.preprocessing import scan_splits
+
+    samples = _samples()
+    split = scan_splits(samples, fractions=SPLIT_FRACTIONS_, seed=3)
+    assert set(split) == {"train", "val", "test"}
+    cases = [c for v in split.values() for c in v]
+    assert len(cases) == len(set(cases)) and set(cases) == set(samples["case_id"])
+    scans = _scan_sets(split)
+    assert not scans["train"] & scans["val"] and not scans["train"] & scans["test"]
+    assert not scans["val"] & scans["test"]
+    # Fractions are on scans (20): 8 / 2 / 10.
+    assert abs(len(scans["train"]) - 8) <= 1 and abs(len(scans["val"]) - 2) <= 1
+    assert abs(len(scans["test"]) - 10) <= 1
+    for k, v in split.items():  # every sample of a scan in the scan's split
+        expected = set(samples.loc[samples["scan_id"].isin(scans[k]), "case_id"])
+        assert set(v) == expected
+
+
+def test_scan_splits_are_deterministic_per_seed():
+    from nnfoundation_bench.preprocessing import scan_splits
+
+    samples = _samples()
+    a = scan_splits(samples, fractions=SPLIT_FRACTIONS_, seed=1)
+    assert a == scan_splits(samples, fractions=SPLIT_FRACTIONS_, seed=1)
+    assert a["test"] != scan_splits(samples, fractions=SPLIT_FRACTIONS_, seed=2)["test"]
+
+
+SPLIT_FRACTIONS_ = {"train": 0.4, "val": 0.1, "test": 0.5}
+
+
+def test_official_scan_split_uses_its_own_val_when_present():
+    from nnfoundation_bench.preprocessing import official_scan_split
+
+    samples = _samples(12)
+    official = {f"s{i:04d}": "train" if i < 7 else "val" if i < 9 else "test" for i in range(12)}
+    samples["official_split"] = samples["scan_id"].map(official)
+    split = official_scan_split(samples, seed=0)
+    scans = _scan_sets(split)
+    assert scans == {
+        "train": {s for s, v in official.items() if v == "train"},
+        "val": {s for s, v in official.items() if v == "val"},
+        "test": {s for s, v in official.items() if v == "test"},
+    }
+    assert sorted(c for v in split.values() for c in v) == sorted(samples["case_id"])
+
+
+def test_official_scan_split_holds_out_train_scans_without_val():
+    from nnfoundation_bench.preprocessing import official_scan_split
+
+    samples = _samples(15)
+    official = {f"s{i:04d}": "train" if i < 10 else "test" for i in range(15)}
+    samples["official_split"] = samples["scan_id"].map(official)
+    split = official_scan_split(samples, val_fraction=0.2, seed=0)
+    scans = _scan_sets(split)
+    assert scans["test"] == {s for s, v in official.items() if v == "test"}
+    assert len(scans["val"]) == 2 and len(scans["train"]) == 8  # 20% of 10 train scans
+    assert scans["train"] | scans["val"] == {s for s, v in official.items() if v == "train"}
+    assert not scans["train"] & scans["val"]
+    for k, v in split.items():
+        assert set(v) == set(samples.loc[samples["scan_id"].isin(scans[k]), "case_id"])
+    assert split == official_scan_split(samples, val_fraction=0.2, seed=0)
+
+
+def test_prepare_task_for_a_crop_task_is_unchanged(tmp_path, monkeypatch):
+    """Regression: binary crop tasks still write 192^3 crops per case."""
+    from dataclasses import replace
+
+    from nnfoundation_bench import preprocessing
+    from nnfoundation_bench.datasets import get_task
+    from nnfoundation_bench.datasets.base import CaseInputs
+
+    monkeypatch.setattr(preprocessing, "PROCESSED_DATA_DIR", tmp_path / "processed")
+    monkeypatch.setattr(preprocessing, "INTERIM_DATA_DIR", tmp_path / "interim")
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    cases = [f"case_{i:02d}" for i in range(20)]
+    for case in cases:
+        array = np.full((10, 10, 10), -500.0, np.float32)
+        array[3:6, 3:6, 3:6] = 100.0
+        mask = (array > 0).astype(np.uint8)
+        for name, a in (("img", array), ("mask", mask)):
+            image = sitk.GetImageFromArray(a)
+            image.SetSpacing((2.0, 2.0, 2.0))
+            sitk.WriteImage(image, raw / f"{case}_{name}.nii.gz")
+    labels = pd.DataFrame({"case_id": cases, "label": [i % 2 for i in range(20)]})
+    task = replace(
+        get_task("kits_liver"),
+        load_labels=lambda: labels,
+        case_inputs=lambda c, d: CaseInputs(raw / f"{c}_img.nii.gz", raw / f"{c}_mask.nii.gz"),
+    )
+    preprocessing.prepare_task(task, device="cpu", seed=0, n_splits=1)
+    out = tmp_path / "processed" / task.name
+    image = _read(out / "images" / "case_00.b2nd")
+    mask = _read(out / "masks" / "case_00.b2nd")
+    assert image.shape == (1, 192, 192, 192) and image.dtype == np.float32
+    assert mask.shape == (1, 192, 192, 192) and mask.dtype == np.uint8
+    assert json.loads((out / "labels.json").read_text()) == dict(
+        zip(cases, labels["label"], strict=True)
+    )
+    summary = json.loads((out / "dataset.json").read_text())
+    assert summary["num_classes"] == 2 and summary["num_positive"] == 10
+    assert summary.get("layout", "crop") != "scan"
+    assert not (out / "scans.csv").exists() and not (out / "organs.csv").exists()
+    (split,) = json.loads((out / "splits.json").read_text())
+    assert {k: len(v) for k, v in split.items()} == {"train": 8, "val": 2, "test": 10}
+
+
+def _read(path):
+    import blosc2
+
+    return blosc2.open(str(path), mode="r")[...]
