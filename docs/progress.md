@@ -1097,3 +1097,17 @@ None yet.
   by ~10%: expect B8/B9 close to B2/B5. Other 2D variants (z smoothing, per-slice
   centring, PCA whitening, pooling-grid check, CT windows) parked in the backlog.
 
+- DINOv2 on the other 5 LLD-MMRI phases (host, 2026-11-26). ROI mean, DINOv2 axial (B2) /
+  3 planes (B5) / nnFoundation ViT (F2) / radiomics (R1): arterial 0.805 / 0.817 / 0.746 /
+  0.786, DWI 0.757 / - / 0.748 / 0.687, in-phase 0.729 / 0.784 / 0.760 / 0.739,
+  out-of-phase 0.728 / 0.766 / 0.697 / 0.709, pre-contrast 0.765 / 0.762 / 0.729 / 0.705.
+  Across the 8 phases the better of B2/B5 is above F2 everywhere (by 0.006 on T2 up to
+  0.069 on out-of-phase). B5 is above B2 on the T1 in/out-of-phase pair, B2 on the contrast
+  phases delay and venous. DWI B4-B6 are missing: the features were extracted but no 3-plane
+  probes ran.
+- L2 (D39) on in-phase, out-of-phase and pre-contrast, the phases run after the L2
+  commit: no effect. Every `_l2` run is within 0.005 of its plain run on average (B8 vs B2:
+  -0.003, +0.003, -0.002; B9 vs B5: -0.001, -0.003, 0.000), and most per-split differences
+  are within ±0.01. Consistent with the uniform token norms: DINOv2 with registers has no
+  outlier tokens to suppress here. Delay through DWI ran on the code from before L2 and
+  have no `_l2` runs; not worth rerunning for L2 alone.
