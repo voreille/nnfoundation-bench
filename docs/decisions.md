@@ -797,4 +797,6 @@ Merges D27 (Valentin: survival probes in `nnfb-features probe`) with D31/D32 (ou
   The weights are gated (automatic approval): accept the terms on the model page and log
   in (`hf auth login`) on the host before the first extraction. Patch size and registers
   are read from the config at load time (checked: slice size must be a multiple of the
-  patch).
+  patch). Downloaded configs (2026-11-26): both are plain `Dinov2Model` ViT-B/16, 768
+  channels, 1 input channel, no registers. Curia-2's processor also clips below -1000
+  (`clip_below_air`, after the resize, before the z-score); `curia2*` does the same.

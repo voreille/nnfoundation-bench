@@ -52,6 +52,8 @@ class SliceEncoder:
     # Coronal / sagittal slices with superior at the top (Curia: IL / IP; the crops' z
     # axis runs inferior to superior). Axial slices are PL as they come (LPS crops).
     superior_up: bool = False
+    # Lower clip after resizing, before the z-score (Curia-2: -1000 HU, ``clip_below_air``).
+    clip_min: float | None = None
 
 
 THREE_PLANES = ("axial", "coronal", "sagittal")
@@ -61,8 +63,8 @@ SLICE_ENCODERS = {
     "dinov2_3p": SliceEncoder("dinov2", THREE_PLANES),
     "curia": SliceEncoder("curia", ("axial",), **_CURIA),
     "curia_3p": SliceEncoder("curia", THREE_PLANES, **_CURIA),
-    "curia2": SliceEncoder("curia2", ("axial",), **_CURIA),
-    "curia2_3p": SliceEncoder("curia2", THREE_PLANES, **_CURIA),
+    "curia2": SliceEncoder("curia2", ("axial",), **_CURIA, clip_min=-1000.0),
+    "curia2_3p": SliceEncoder("curia2", THREE_PLANES, **_CURIA, clip_min=-1000.0),
 }
 
 
@@ -122,6 +124,7 @@ def plane_tokens(
     size: int = SLICE_SIZE,
     inputs: str = "imagenet",
     superior_up: bool = False,
+    clip_min: float | None = None,
 ):
     """Patch tokens of every slice along ``axis``: (n_slices, g, g, C) on the volume's
     device, in (z, y, x) order. ``volume`` is a (z, y, x) tensor from ``prepare``."""
@@ -140,6 +143,8 @@ def plane_tokens(
     out = []
     for start in range(0, len(slices), batch_size):
         x = F.interpolate(slices[start : start + batch_size], size=(size, size), **resize)
+        if clip_min is not None:
+            x = x.clamp_min(clip_min)
         x = _normalise(x, inputs)
         tokens = model(pixel_values=x).last_hidden_state[:, n_skip:]
         out.append(tokens.reshape(len(x), grid, grid, -1).float())
@@ -162,7 +167,12 @@ def slice_feature_map(
     import torch
 
     enc = encoder or SliceEncoder("", planes)
-    opts = {"size": enc.size, "inputs": enc.inputs, "superior_up": enc.superior_up}
+    opts = {
+        "size": enc.size,
+        "inputs": enc.inputs,
+        "superior_up": enc.superior_up,
+        "clip_min": enc.clip_min,
+    }
     vol = torch.from_numpy(volume).to(device)
     with torch.no_grad(), torch.autocast(torch.device(device).type, dtype=torch.bfloat16):
         if planes == ("axial",):

@@ -58,9 +58,9 @@ Next steps:
    2.4 GB GPU). On the host, for a prepared task:
    `MODELS="dinov2 dinov2_3p" RADIOMICS="" scripts/run_probes.sh <task>`.
    Then DINOv3 (B7) once the gated weights are granted.
-13. Curia / Curia-2 (C1-C12, D40): code done, not smoke-tested on real weights yet
-   (gated). On the host: accept the terms on huggingface.co/raidium/curia and
-   /raidium/curia-2, `hf auth login`, download, then a smoke test here, then
+13. Curia / Curia-2 (C1-C12, D40): code done, weights downloaded, smoke-tested on 3 cases
+   each of LLD-MMRI delay (MR), STOIC (CT) and HECKTOR HPV (PET): 0.2 s per case axial,
+   0.3-0.4 s with 3 planes, ~1.1 GB GPU. On the host, for a prepared task:
    `MODELS="curia curia_3p curia2 curia2_3p" RADIOMICS="" scripts/run_probes.sh <task>`.
 
 ## Backlog
@@ -1129,3 +1129,7 @@ None yet.
   (D40, rows C1-C12): raw intensities z-scored per slice, 256 px, coronal and sagittal
   slices with superior at the top, as the model card asks. Unit tests only so far: the
   weights are gated (automatic approval) and claude-box has no Hugging Face token.
+- Curia / Curia-2 weights downloaded (pinned revisions) and smoke-tested on 3 cases each
+  of MR, CT and PET: finite maps of (768, 192, 16, 16) axial and (768, 16, 16, 16) with 3
+  planes, ~0.2-0.4 s per case, ~1.1 GB GPU. Uniform token norms (Curia median ~51, max
+  ~72; Curia-2 median ~29, max ~34). Curia-2 also clips below -1000 HU, as its processor.
