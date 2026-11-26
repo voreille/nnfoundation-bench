@@ -800,3 +800,22 @@ Merges D27 (Valentin: survival probes in `nnfb-features probe`) with D31/D32 (ou
   patch). Downloaded configs (2026-11-26): both are plain `Dinov2Model` ViT-B/16, 768
   channels, 1 input channel, no registers. Curia-2's processor also clips below -1000
   (`clip_below_air`, after the resize, before the z-score); `curia2*` does the same.
+
+## D41. KiTS23 kidney tumour malignancy task (`kits_malignant`) (active, 2026-11-26)
+- **Choice:** KiTS23 CT (489 training cases), label = KiTS23 `malignant` (pathology
+  report): 439 malignant, 43 benign; the 7 cases without the field are left out. ROI = the
+  expert tumour segmentation (label 2), cysts (label 3) and kidney (label 1) excluded; crop
+  centred on the tumour union (several tumours in one patient form one ROI). Same 1 mm,
+  192³ crops, splits and probes as every task; no centre column (KiTS23 metadata has none).
+  Segmentations come from the same pinned Hugging Face mirror as the images.
+- **Why:** it is Curia's "kidney lesion malignancy" task (CuriaBench / Curia-2 O1), so it
+  gives a published reference point for the Curia pipeline (D40), and it is our first CT
+  task with an expert ROI. The data overlaps with `kits_liver`, so the images are shared.
+- **Rejected:** tumour + cyst as the ROI (malignancy is a property of the tumour; cysts are
+  a separate label); per-tumour samples (labels are per patient).
+- **Open:** CuriaBench's own train/val/test split for this task (gated dataset, separate
+  access) could be added as `kits_malignant_curia`, one fold like the `_official` tasks
+  (D37), for a like-for-like comparison. CuriaBench appears to use one 2D slice per case
+  (an image and a mask per row), so even with their split our 3D crops are not the same
+  input. Strong imbalance (9 % benign): AUROC is still fine, but each test fold has only
+  ~21 benign cases.

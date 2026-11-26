@@ -62,6 +62,11 @@ Next steps:
    each of LLD-MMRI delay (MR), STOIC (CT) and HECKTOR HPV (PET): 0.2 s per case axial,
    0.3-0.4 s with 3 planes, ~1.1 GB GPU. On the host, for a prepared task:
    `MODELS="curia curia_3p curia2 curia2_3p" RADIOMICS="" scripts/run_probes.sh <task>`.
+14. `kits_malignant` (D41), Curia's kidney tumour malignancy task: code done, smoke-tested on
+   the 2 local KiTS cases. On the host (images ~100 GB, shared with `kits_liver`):
+   `uv run nnfb-data download kits_malignant && uv run nnfb-data prepare kits_malignant`,
+   then `MODELS="cnn vit" scripts/run_probes.sh kits_malignant` and
+   `MODELS="dinov2 dinov2_3p curia curia_3p curia2 curia2_3p" RADIOMICS="" scripts/run_probes.sh kits_malignant`.
 
 ## Backlog
 
@@ -100,6 +105,8 @@ would trigger it. Move an item to "Next steps" when it is picked up.
 - **Silence TotalSegmentator's "Output affine not equal" warning** by snapping the
   temporary 3 mm image's origin to float32-exact values (a sub-micrometre shift). Harmless,
   but about 15 lines per case in the logs.
+- **CuriaBench split for `kits_malignant`** (`kits_malignant_curia`, one fold, D41).
+  *Trigger:* access to the gated CuriaBench dataset, and C2 results on `kits_malignant`.
 - **Curia at 512 px** (the processor's size, 0.375 mm per pixel on our crops, 32 x 32
   tokens). *Trigger:* C2 clearly below B2 (D40).
 - **2D baseline (D38, D39), variants for later.** Each is an extra pooling or input option
@@ -893,6 +900,12 @@ No results yet.
 
 None yet.
 
+### kits_malignant
+
+<!-- generated: design kits_malignant -->
+No results yet.
+<!-- end generated -->
+
 ### mrnet_*
 
 None yet.
@@ -1133,3 +1146,8 @@ None yet.
   of MR, CT and PET: finite maps of (768, 192, 16, 16) axial and (768, 16, 16, 16) with 3
   planes, ~0.2-0.4 s per case, ~1.1 GB GPU. Uniform token norms (Curia median ~51, max
   ~72; Curia-2 median ~29, max ~34). Curia-2 also clips below -1000 HU, as its processor.
+- New task `kits_malignant` (D41): KiTS23 CT, expert tumour mask as ROI, malignant (439)
+  vs benign (43), the Curia papers' kidney-lesion malignancy task, so the Curia rows get a
+  published reference. Smoke test on the 2 KiTS cases on this machine: crops centred on
+  the tumour (8.5k and 11.4k tumour voxels), finite DINOv2 / Curia / Curia-2 features.
+  CuriaBench's own split is gated separately (access not requested); parked in the backlog.

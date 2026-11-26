@@ -57,6 +57,7 @@ images are about 100 GB.
 | Task | Source | Cases | ROI | Label | Status |
 |------|--------|-------|-----|-------|--------|
 | `kits_liver` | KiTS23 | 489   | liver (TotalSegmentator) | Charlson liver-disease comorbidity (mild or moderate/severe) | pipeline smoke-tested; label definition is our assumption |
+| `kits_malignant` | KiTS23 | 482 (439 +) | kidney tumour (dataset segmentation, label 2) | malignant vs benign (pathology), Curia's O1 task | code + smoke test on 2 cases |
 | `hecktor_hpv_pet_gtvp` | HECKTOR (curated EUVIP 2024 HPV subset), PET SUVbw | 102 (52 +) | GTVp (dataset SEG) | HPV positive | ready for prepare; **centre alone gives AUROC 0.84** |
 | `mrnet_<abnormal\|acl\|meniscus>_<sagittal\|coronal\|axial>` | MRNet public release (knee MR), one series per task | 1250 (abnormal 1008, ACL 262, meniscus 449) | field of view (no masks) | per target | code + smoke test; spacing assumed (no geometry in the data) |
 | `lld_mmri_malignant_<pre\|arterial\|venous\|delay\|t2\|dwi\|inphase\|outphase>` | LLD-MMRI 2023 (MedSAM2 release), liver MR, one series per task | 498 (266 +) | liver lesion (dataset mask, per series) | malignant vs benign (our assumption) | code + smoke test on 2 cases x 3 phases |

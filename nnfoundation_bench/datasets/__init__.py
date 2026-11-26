@@ -9,7 +9,7 @@ from nnfoundation_bench.datasets.brats import BRATS_TASKS
 from nnfoundation_bench.datasets.hecktor import HECKTOR_HPV_PET_GTVP
 from nnfoundation_bench.datasets.hecktor2022 import HECKTOR2022_TASKS
 from nnfoundation_bench.datasets.hecktor2022_rfs2y import HECKTOR22_RFS_TASKS
-from nnfoundation_bench.datasets.kits import KITS_LIVER
+from nnfoundation_bench.datasets.kits import KITS_LIVER, KITS_MALIGNANT
 from nnfoundation_bench.datasets.lld_mmri import LLD_MMRI_TASKS
 from nnfoundation_bench.datasets.mrnet import MRNET_TASKS
 from nnfoundation_bench.datasets.rsna_spine import RSNA_SPINE_FRACTURE
@@ -20,6 +20,7 @@ TASKS: dict[str, ClassificationTask] = {
     task.name: task
     for task in (
         KITS_LIVER,
+        KITS_MALIGNANT,
         HECKTOR_HPV_PET_GTVP,
         *HECKTOR2022_TASKS,
         *MRNET_TASKS,
