@@ -90,26 +90,39 @@ def dilate(mask: np.ndarray, margin: float) -> np.ndarray:
     return distance_transform_edt(~mask.astype(bool)) <= margin
 
 
-def pool_features(
-    feature_map: np.ndarray, mask: np.ndarray, roi_names: tuple[tuple[int, str], ...] = ()
-) -> dict[str, np.ndarray]:
+def pool_features(feature_map, mask: np.ndarray, roi_names: tuple[tuple[int, str], ...] = ()):
     """Pool a (C, gz, gy, gx) map in every ``POOLINGS`` way; ``mask`` is (z, y, x) uint8.
 
     ROI poolings weight each cell by the fraction of ROI voxels it holds; ``roi`` is the
     union of all mask values. Without a ROI they fall back to the whole-crop mean. Each
     ``(value, name)`` of ``roi_names`` adds ``<name>_mean`` over ``mask == value``, NaN
     when that ROI is absent (imputed in the probe like any missing value).
+
+    ``feature_map`` is a numpy array or a torch tensor; a tensor is pooled on its device
+    (the axial 2D maps are ~450 MB, D38), and the pooled vectors come back as numpy.
     """
-    flat = feature_map.reshape(feature_map.shape[0], -1).astype(np.float32)
-    pooled = {"mean": flat.mean(1)}
-    grid = feature_map.shape[1:]
+    if isinstance(feature_map, np.ndarray):
+        flat = feature_map.reshape(feature_map.shape[0], -1).astype(np.float32)
+
+        def matvec(w):
+            return flat @ w
+    else:
+        import torch
+
+        flat = feature_map.reshape(feature_map.shape[0], -1).float()
+
+        def matvec(w):
+            return (flat @ torch.from_numpy(w).to(flat.device)).cpu().numpy()
+
+    grid = tuple(feature_map.shape[1:])
+    pooled = {"mean": matvec(np.full(flat.shape[1], 1 / flat.shape[1], np.float32))}
     for name, roi in (("roi", mask > 0), ("roi_margin", dilate(mask > 0, ROI_MARGIN_MM))):
         w = cell_weights(roi, grid).reshape(-1)
-        pooled[f"{name}_mean"] = flat @ w / w.sum() if w.sum() > 0 else pooled["mean"]
+        pooled[f"{name}_mean"] = matvec(w / w.sum()) if w.sum() > 0 else pooled["mean"]
     for value, name in roi_names:
         w = cell_weights(mask == value, grid).reshape(-1)
         pooled[f"{name}_mean"] = (
-            flat @ w / w.sum() if w.sum() > 0 else np.full(len(flat), np.nan, np.float32)
+            matvec(w / w.sum()) if w.sum() > 0 else np.full(len(flat), np.nan, np.float32)
         )
     return pooled
 
@@ -156,9 +169,10 @@ def _read_b2nd(path: Path) -> np.ndarray:
     return blosc2.open(str(path), mode="r")[...]
 
 
-def _slice_map(task: str, case: str, encoder, planes, device: str, shape) -> np.ndarray:
-    """Slice-wise 2D feature map of one case, from its QC crop in HU / SUV / MR units
-    (the z-scored arrays lose the absolute scale the CT and PET windows need)."""
+def _slice_map(task: str, case: str, encoder, planes, device: str, shape):
+    """Slice-wise 2D feature map of one case (a tensor on ``device``), from its QC crop in
+    HU / SUV / MR units (the z-scored arrays lose the absolute scale the CT and PET windows
+    need)."""
     import SimpleITK as sitk
 
     from nnfoundation_bench.modeling.slice_features import slice_feature_map, to_unit
@@ -167,7 +181,8 @@ def _slice_map(task: str, case: str, encoder, planes, device: str, shape) -> np.
     crop = sitk.GetArrayFromImage(sitk.ReadImage(path))
     if crop.shape != tuple(shape):
         raise ValueError(f"{case}: QC crop {crop.shape} is not on the mask grid {shape}")
-    return slice_feature_map(encoder, to_unit(crop, get_task(task).modality), planes, device)
+    unit = to_unit(crop, get_task(task).modality)
+    return slice_feature_map(encoder, unit, planes, device, to_numpy=False)
 
 
 @app.command()
@@ -212,7 +227,7 @@ def extract(
                 fmap = feature_map(encoder, image.to(device)).float()[0].cpu().numpy()
         arrays = pool_features(fmap, mask, roi_names)
         if save_maps:
-            arrays["map"] = fmap.astype(np.float16)
+            arrays["map"] = np.asarray(fmap.cpu() if slice_encoder else fmap, np.float16)
         tmp = out_dir / f".partial.{case}.npz"
         np.savez(tmp, **arrays)
         tmp.rename(out_dir / f"{case}.npz")

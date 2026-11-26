@@ -91,16 +91,22 @@ def plane_tokens(model, volume, axis: int, batch_size: int):
 
 
 def slice_feature_map(
-    model, volume: np.ndarray, planes: tuple[str, ...], device: str, batch_size: int = 32
-) -> np.ndarray:
-    """(C, gz, gy, gx) feature map of a (z, y, x) volume in [0, 1] (see module doc)."""
+    model,
+    volume: np.ndarray,
+    planes: tuple[str, ...],
+    device: str,
+    batch_size: int = 32,
+    to_numpy: bool = True,
+):
+    """(C, gz, gy, gx) feature map of a (z, y, x) volume in [0, 1] (see module doc): a
+    numpy array, or with ``to_numpy=False`` a float32 tensor left on ``device``."""
     import torch
 
     vol = torch.from_numpy(volume).to(device)
     with torch.no_grad(), torch.autocast(torch.device(device).type, dtype=torch.bfloat16):
         if planes == ("axial",):
-            tokens = plane_tokens(model, vol, 0, batch_size)  # (z, gy, gx, C)
-            return tokens.permute(3, 0, 1, 2).cpu().numpy()
+            fmap = plane_tokens(model, vol, 0, batch_size).permute(3, 0, 1, 2)  # (C, z, gy, gx)
+            return fmap.cpu().numpy() if to_numpy else fmap.contiguous()
         maps = []
         for plane in planes:
             axis = PLANE_AXIS[plane]
@@ -110,4 +116,5 @@ def slice_feature_map(
             tokens = tokens.reshape(g, len(tokens) // g, g, g, -1).mean(1)
             # Back to (z, y, x, C): the slice axis was moved to the front.
             maps.append(tokens.movedim(0, axis))
-        return torch.stack(maps).mean(0).permute(3, 0, 1, 2).cpu().numpy()
+        fmap = torch.stack(maps).mean(0).permute(3, 0, 1, 2)
+        return fmap.cpu().numpy() if to_numpy else fmap.contiguous()
