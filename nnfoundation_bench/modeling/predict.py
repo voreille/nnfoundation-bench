@@ -222,6 +222,19 @@ def summarize(task: str) -> None:
     typer.echo(summary.to_string(float_format="%.4f"))
 
 
+def slice_rows(prefix: str, models: tuple[str, ...], kind: str | None = None) -> dict:
+    """Rows ``<prefix>1``... for 2D slice encoders: whole crop, ROI and ROI + 10 mm means
+    per model (as F1-F3), in the order of ``models``. ``kind`` fixes the probe kind."""
+    return {
+        f"{prefix}{i + 3 * k}": (lambda p, m=m, pool=pool: f"{m}_frozen_{pool}_{kind or p}")
+        for k, m in enumerate(models)
+        for i, pool in enumerate(("mean", "roi_mean", "roi_margin_mean"), start=1)
+    }
+
+
+# Curia (C1-C6: axial, 3 planes) and Curia-2 (C7-C12), 2D radiology encoders (D40).
+CURIA_MODELS = ("curia", "curia_3p", "curia2", "curia2_3p")
+
 # Design-benchmark rows (docs/progress.md) -> run name, given the pretrained model ``m``
 # and the probe kind ``p`` (``logreg``, or ``cox`` on survival tasks).
 DESIGN_RUNS = {
@@ -240,14 +253,11 @@ DESIGN_RUNS = {
     "R1": lambda p: f"radiomics_original_{p}",
     # 2D natural-image baseline, DINOv2 ViT-L/14 slice by slice (D38): axial slices (B1-B3),
     # axial + coronal + sagittal averaged on a 24^3 grid (B4-B6); same poolings as F1-F3.
-    **{
-        f"B{i + 3 * k}": (lambda p, m=m, pool=pool: f"{m}_frozen_{pool}_{p}")
-        for k, m in enumerate(("dinov2", "dinov2_3p"))
-        for i, pool in enumerate(("mean", "roi_mean", "roi_margin_mean"), start=1)
-    },
+    **slice_rows("B", ("dinov2", "dinov2_3p")),
     # B2 and B5 over L2-normalised tokens (D39).
     "B8": lambda p: f"dinov2_frozen_roi_mean_l2_{p}",
     "B9": lambda p: f"dinov2_3p_frozen_roi_mean_l2_{p}",
+    **slice_rows("C", CURIA_MODELS),
     # Late fusion of per-modality ROI-mean embeddings (D14, D30), on a fused task
     # (``nnfb-features fuse``): concatenation, mean, score stacking on val.
     "M2": lambda m, p: f"{m}_fused_concat_roi_mean_{p}",
@@ -377,13 +387,10 @@ COX_DESIGN_RUNS = {
     "F2": lambda m, p: f"{m}_frozen_roi_mean_cox",
     "F3": lambda m, p: f"{m}_frozen_roi_margin_mean_cox",
     "R1": lambda p: "radiomics_original_cox",
-    **{
-        f"B{i + 3 * k}": (lambda p, m=m, pool=pool: f"{m}_frozen_{pool}_cox")
-        for k, m in enumerate(("dinov2", "dinov2_3p"))
-        for i, pool in enumerate(("mean", "roi_mean", "roi_margin_mean"), start=1)
-    },
+    **slice_rows("B", ("dinov2", "dinov2_3p"), "cox"),
     "B8": lambda p: "dinov2_frozen_roi_mean_l2_cox",
     "B9": lambda p: "dinov2_3p_frozen_roi_mean_l2_cox",
+    **slice_rows("C", CURIA_MODELS, "cox"),
     "ref-age": lambda p: "covariates_age_cox",
     "ref-age+hpv": lambda p: "covariates_age_hpv_cox",
     "ref-site": lambda p: "covariates_group_cox",

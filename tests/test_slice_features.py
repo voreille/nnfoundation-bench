@@ -3,37 +3,66 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from nnfoundation_bench.modeling.slice_features import SLICE_SIZE, slice_feature_map, to_unit
+from nnfoundation_bench.modeling.slice_features import (
+    SLICE_ENCODERS,
+    SLICE_SIZE,
+    plane_tokens,
+    slice_feature_map,
+    to_unit,
+)
 
 
 class PatchMeanModel:
     """Stand-in for a 2D ViT: one CLS token, then each patch's mean intensity as a
     1-channel token (row-major), so feature maps can be checked against the input."""
 
-    config = SimpleNamespace(patch_size=14, num_register_tokens=0)
+    def __init__(self, patch_size=14):
+        # No num_register_tokens: Curia's plain Dinov2Config has none.
+        self.config = SimpleNamespace(patch_size=patch_size)
+        self.inputs = []
 
     def __call__(self, pixel_values):
         import torch
         import torch.nn.functional as F
 
+        self.inputs.append(pixel_values)
         patches = F.avg_pool2d(pixel_values[:, :1], self.config.patch_size)
         tokens = patches.flatten(2).transpose(1, 2)  # (B, g*g, 1)
         cls = torch.zeros(len(tokens), 1, 1)
         return SimpleNamespace(last_hidden_state=torch.cat([cls, tokens], dim=1))
 
 
-@pytest.mark.parametrize("planes", [("axial",), ("axial", "coronal", "sagittal")])
-def test_slice_map_keeps_volume_orientation(planes):
+@pytest.mark.parametrize(
+    "name", ["dinov2", "dinov2_3p", "curia", "curia_3p"]
+)  # fmt: skip
+def test_slice_map_keeps_volume_orientation(name):
+    encoder = SLICE_ENCODERS[name]
+    planes = encoder.planes
+    patch = 14 if encoder.size == SLICE_SIZE else 16
     volume = np.zeros((48, 48, 48), np.float32)
     volume[4:8, 20:24, 40:44] = 1.0  # bright cube, distinct position on each axis
-    fmap = slice_feature_map(PatchMeanModel(), volume, planes, "cpu", batch_size=16)
-    g = SLICE_SIZE // 14
+    model = PatchMeanModel(patch)
+    fmap = slice_feature_map(model, volume, planes, "cpu", batch_size=16, encoder=encoder)
+    g = encoder.size // patch
     assert fmap.shape == ((1, 48, g, g) if planes == ("axial",) else (1, g, g, g))
     peak = np.array(np.unravel_index(np.argmax(fmap[0]), fmap.shape[1:]))
     # Cube centre (voxels 5.5, 21.5, 41.5) in feature-cell coordinates.
     scale = np.array(fmap.shape[1:]) / 48
     cube_centre = (np.array([5.5, 21.5, 41.5]) + 0.5) * scale - 0.5
     assert np.all(np.abs(peak - cube_centre) <= 1.5)
+
+
+def test_curia_slices_superior_up_and_zscored():
+    import torch
+
+    volume = torch.arange(32.0).view(32, 1, 1).expand(32, 32, 32).contiguous()  # value = z
+    model = PatchMeanModel(16)
+    plane_tokens(model, volume, 1, 64, size=32, inputs="zscore", superior_up=True)
+    x = model.inputs[0]  # coronal slices (n, 1, z rows, x columns)
+    assert x.shape == (32, 1, 32, 32)
+    assert x[0, 0, 0].mean() > x[0, 0, -1].mean()  # superior (high z) at the top
+    assert torch.allclose(x.mean((1, 2, 3)), torch.zeros(32), atol=1e-5)
+    assert torch.allclose(x.std((1, 2, 3)), torch.ones(32), atol=1e-4)
 
 
 def test_to_unit_windows():
@@ -53,6 +82,8 @@ def test_design_rows_for_the_2d_baseline():
     assert ids["dinov2_frozen_roi_mean_logreg"] == "B2"
     assert ids["dinov2_3p_frozen_roi_margin_mean_logreg"] == "B6"
     assert ids["vit_frozen_mean_logreg"] == "F1"
+    assert ids["curia_frozen_roi_mean_logreg"] == "C2"
+    assert ids["curia2_3p_frozen_roi_margin_mean_logreg"] == "C12"
     grid = design_table({"t": pd.Series({"dinov2_3p_frozen_mean_cox": "0.6"})}, kinds={"t": "cox"})
     assert "| B4 | 0.6 |" in grid
 

@@ -771,3 +771,30 @@ Merges D27 (Valentin: survival probes in `nnfb-features probe`) with D31/D32 (ou
   so B8/B9 may barely differ from B2/B5. Not applied to the nnFoundation features
   (re-extraction of every task; only if B8/B9 beat B2/B5 clearly).
 
+
+## D40. Curia and Curia-2: 2D radiology encoders slice by slice (active, 2026-11-26)
+- **Choice:** Raidium's Curia (`raidium/curia`, arXiv:2509.06830) and Curia-2
+  (`raidium/curia-2`, arXiv:2604.01987), DINOv2-trained ViT-B models on CT and MR slices,
+  run through the slice pipeline of D38 as models `curia`, `curia_3p`, `curia2`,
+  `curia2_3p` (rows C1-C12, same poolings as B1-B6, plus the L2 poolings of D39). Inputs
+  follow the authors' `CuriaImageProcessor`: raw HU / SUV / MR values of the QC crop, no
+  windowing, bicubic resize (antialiased), z-score per slice, one channel. Planes as the
+  model card asks: axial PL (the LPS crops as they are), coronal IL and sagittal IP
+  (superior at the top: the crops' z axis is flipped for those two planes, and the tokens
+  flipped back). Last-layer patch tokens, CLS dropped (no registers). Revisions pinned in
+  `weights.HUB_MODELS`.
+- **Why:** a radiology 2D foundation model is the natural middle ground between the
+  natural-image baseline (DINOv2, D38) and the 3D nnFoundation models: same
+  slice-wise protocol, but trained on in-domain images. It tells whether the B2 > F2 gap
+  on LLD-MMRI comes from 2D slicing or from DINOv2's features.
+- **Slice size (ASSUMPTION):** 256 px for the 192 mm crop (0.75 mm per pixel), not the
+  processor's 512 px. Curia was trained on whole slices, typically 512 px at ~0.7 mm, so
+  256 px keeps the pixel size it saw, while 512 px would zoom in 2.7x. With 16 px patches
+  that is 16 x 16 tokens of 12 mm; the 3-plane maps are 16³.
+- **Rejected for now:** the task heads shipped with Curia (fixed label sets); fine-tuning;
+  512 px (backlog, if C2 lags B2).
+- **Open:** PET is outside Curia's training domain (CT, MR); on HECKTOR it is used as is.
+  The weights are gated (automatic approval): accept the terms on the model page and log
+  in (`hf auth login`) on the host before the first extraction. Patch size and registers
+  are read from the config at load time (checked: slice size must be a multiple of the
+  patch).

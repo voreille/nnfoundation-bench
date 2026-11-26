@@ -58,6 +58,10 @@ Next steps:
    2.4 GB GPU). On the host, for a prepared task:
    `MODELS="dinov2 dinov2_3p" RADIOMICS="" scripts/run_probes.sh <task>`.
    Then DINOv3 (B7) once the gated weights are granted.
+13. Curia / Curia-2 (C1-C12, D40): code done, not smoke-tested on real weights yet
+   (gated). On the host: accept the terms on huggingface.co/raidium/curia and
+   /raidium/curia-2, `hf auth login`, download, then a smoke test here, then
+   `MODELS="curia curia_3p curia2 curia2_3p" RADIOMICS="" scripts/run_probes.sh <task>`.
 
 ## Backlog
 
@@ -96,6 +100,8 @@ would trigger it. Move an item to "Next steps" when it is picked up.
 - **Silence TotalSegmentator's "Output affine not equal" warning** by snapping the
   temporary 3 mm image's origin to float32-exact values (a sub-micrometre shift). Harmless,
   but about 15 lines per case in the logs.
+- **Curia at 512 px** (the processor's size, 0.375 mm per pixel on our crops, 32 x 32
+  tokens). *Trigger:* C2 clearly below B2 (D40).
 - **2D baseline (D38, D39), variants for later.** Each is an extra pooling or input option
   of `nnfb-features extract --model dinov2*`, one re-extraction per task.
   *Trigger:* B2/B5 results on several tasks (LLD-MMRI phases, one CT task), and for the
@@ -176,6 +182,14 @@ runs stay in the per-task runs tables).
 | B7 | Baseline (2D) | DINOv3 ViT-L/16 in place of DINOv2 (access to the gated weights pending) |  | all | planned |
 | B8 | Baseline (2D, token norm) | B2 over L2-normalised patch tokens: every token weighs the same, only its direction counts (D39); also `mean_l2`, `roi_margin_mean_l2` (and per named ROI) in the runs tables | `dinov2_frozen_roi_mean_l2_<p>` | MRNet n/a | ready |
 | B9 | Baseline (2D, token norm) | B5 over L2-normalised patch tokens (D39) | `dinov2_3p_frozen_roi_mean_l2_<p>` | MRNet n/a | ready |
+| C1 | Radiology 2D | Curia ViT-B (frozen, Raidium, CT and MR), axial slices of the crop as raw HU / SUV / MR, bicubic resize to 256 px (0.75 mm), z-scored per slice, 1 channel; patch tokens stacked into a (768, 192, 16, 16) map; whole crop (D40); one value per cell | `curia_frozen_mean_<p>` | all | ready (weights gated) |
+| C2 | Radiology 2D | C1, mean over the ROI | `curia_frozen_roi_mean_<p>` | MRNet n/a | ready (weights gated) |
+| C3 | Radiology 2D | C1, mean over the ROI + 10 mm | `curia_frozen_roi_margin_mean_<p>` | MRNet n/a | ready (weights gated) |
+| C4 | Radiology 2D, 3 planes | C1 on axial, coronal (IL) and sagittal (IP) slices, averaged on 16³ (as B4); whole crop | `curia_3p_frozen_mean_<p>` | all | ready (weights gated) |
+| C5 | Radiology 2D, 3 planes | C4, mean over the ROI | `curia_3p_frozen_roi_mean_<p>` | MRNet n/a | ready (weights gated) |
+| C6 | Radiology 2D, 3 planes | C4, mean over the ROI + 10 mm | `curia_3p_frozen_roi_margin_mean_<p>` | MRNet n/a | ready (weights gated) |
+| C7-C9 | Radiology 2D | C1-C3 with Curia-2 | `curia2_frozen_<pooling>_<p>` | as C1-C3 | ready (weights gated) |
+| C10-C12 | Radiology 2D, 3 planes | C4-C6 with Curia-2 | `curia2_3p_frozen_<pooling>_<p>` | as C4-C6 | ready (weights gated) |
 | S1 | Input size | Fixed 192³ at 1 mm (current preprocessing; same as F1-F3) | see F1-F3 | all | ready |
 | S2 | Input size | Native 1 mm, input size = FOV; ViT absolute position embedding interpolated (glovita default) |  | all | planned |
 | S3 | Input size | Same as S2, but the ViT absolute position embedding is cut out (FOV < 192) instead of interpolated, consistent with RoPE; CNN n/a |  | all | planned |
@@ -1111,3 +1125,7 @@ None yet.
   are within ±0.01. Consistent with the uniform token norms: DINOv2 with registers has no
   outlier tokens to suppress here. Delay through DWI ran on the code from before L2 and
   have no `_l2` runs; not worth rerunning for L2 alone.
+- Curia and Curia-2 (Raidium, DINOv2-trained ViT-B on CT and MR) added as slice encoders
+  (D40, rows C1-C12): raw intensities z-scored per slice, 256 px, coronal and sagittal
+  slices with superior at the top, as the model card asks. Unit tests only so far: the
+  weights are gated (automatic approval) and claude-box has no Hugging Face token.

@@ -196,20 +196,22 @@ def _read_b2nd(path: Path) -> np.ndarray:
     return blosc2.open(str(path), mode="r")[...]
 
 
-def _slice_map(task: str, case: str, encoder, planes, device: str, shape):
+def _slice_map(task: str, case: str, model, encoder, device: str, shape):
     """Slice-wise 2D feature map of one case (a tensor on ``device``), from its QC crop in
     HU / SUV / MR units (the z-scored arrays lose the absolute scale the CT and PET windows
     need)."""
     import SimpleITK as sitk
 
-    from nnfoundation_bench.modeling.slice_features import slice_feature_map, to_unit
+    from nnfoundation_bench.modeling.slice_features import prepare, slice_feature_map
 
     path = INTERIM_DATA_DIR / processed_task(task) / "images" / f"{case}.nii.gz"
     crop = sitk.GetArrayFromImage(sitk.ReadImage(path))
     if crop.shape != tuple(shape):
         raise ValueError(f"{case}: QC crop {crop.shape} is not on the mask grid {shape}")
-    unit = to_unit(crop, get_task(task).modality)
-    return slice_feature_map(encoder, unit, planes, device, to_numpy=False)
+    volume = prepare(crop, get_task(task).modality, encoder)
+    return slice_feature_map(
+        model, volume, encoder.planes, device, to_numpy=False, encoder=encoder
+    )
 
 
 @app.command()
@@ -248,7 +250,7 @@ def extract(
     for case in tqdm(todo, desc=f"{task} {model}"):
         mask = _read_b2nd(root / "masks" / f"{case}.b2nd")[0]
         if slice_encoder:
-            fmap = _slice_map(task, case, encoder, slice_encoder.planes, device, mask.shape)
+            fmap = _slice_map(task, case, encoder, slice_encoder, device, mask.shape)
         else:
             image = torch.from_numpy(_read_b2nd(root / "images" / f"{case}.b2nd"))[None]
             with torch.no_grad(), torch.autocast(torch.device(device).type, dtype=torch.bfloat16):

@@ -63,6 +63,10 @@ HUB_MODELS = {
     "dinov2": HubModel(
         "facebook/dinov2-with-registers-large", "e4c89a4e05589de9b3e188688a303d0f3c04d0f3"
     ),
+    # Radiology 2D encoders (Raidium, DINOv2 ViT-B on CT and MR slices, D40). Gated with
+    # automatic approval: accept the terms on the model page, then log in (`hf auth login`).
+    "curia": HubModel("raidium/curia", "9657dc56276bc6c9503ef6f8d060879c8bee482f"),
+    "curia2": HubModel("raidium/curia-2", "645f566dd9e002505691178917cee265b491c7f7"),
 }
 
 
@@ -77,6 +81,6 @@ def get_hub_model(name: str) -> Path:
             model.repo,
             revision=model.revision,
             local_dir=model.path,
-            allow_patterns=["*.json", "model.safetensors"],
+            allow_patterns=["*.json", "model.safetensors", "LICENSE"],
         )
     return model.path
