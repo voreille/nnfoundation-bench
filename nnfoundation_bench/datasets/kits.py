@@ -1,8 +1,9 @@
 """KiTS23 (Heller et al., 2023) and the classification tasks derived from it.
 
-Images come from the official Hugging Face mirror used by the ``kits23`` repo, the
-clinical metadata (``kits23.json``) from the ``neheller/kits23`` GitHub repo. Both
-are pinned to fixed revisions so the benchmark is reproducible.
+Images and expert segmentations (1 kidney, 2 tumour, 3 cyst) come from the official
+Hugging Face mirror used by the ``kits23`` repo, the clinical metadata (``kits23.json``)
+from the ``neheller/kits23`` GitHub repo. Both are pinned to fixed revisions so the
+benchmark is reproducible.
 """
 
 import hashlib
@@ -32,8 +33,16 @@ METADATA_PATH = RAW_DIR / "kits23.json"
 TOTALSEG_DIR = INTERIM_DATA_DIR / SOURCE / "totalseg"
 
 
+# Label of the tumour in the KiTS23 segmentations.
+TUMOUR_LABEL = 2
+
+
 def image_path(case_id: str) -> Path:
     return RAW_DIR / "images" / f"{case_id}.nii.gz"
+
+
+def segmentation_path(case_id: str) -> Path:
+    return RAW_DIR / "segmentations" / f"{case_id}.nii.gz"
 
 
 def _sha256(path: Path) -> str:
@@ -56,27 +65,33 @@ def download_metadata() -> None:
     tmp.rename(METADATA_PATH)
 
 
-def download_images(max_workers: int = 8) -> None:
-    """Fetch the 489 training CTs (~100 GB). Resumable: re-running skips finished files."""
+def download_images(max_workers: int = 8, folder: str = "images") -> None:
+    """Fetch the 489 training CTs (``images``, 42 GB) or their expert segmentations
+    (``segmentations``). Resumable: re-running skips finished files."""
     from huggingface_hub import snapshot_download
 
-    logger.info(f"Downloading KiTS23 images from {HF_REPO}@{HF_REVISION[:8]} to {RAW_DIR}")
+    logger.info(f"Downloading KiTS23 {folder} from {HF_REPO}@{HF_REVISION[:8]} to {RAW_DIR}")
     snapshot_download(
         repo_id=HF_REPO,
         repo_type="dataset",
         revision=HF_REVISION,
-        allow_patterns=["images/case_*.nii.gz"],
+        allow_patterns=[f"{folder}/case_*.nii.gz"],
         local_dir=RAW_DIR,
         max_workers=max_workers,
     )
-    found = len(list((RAW_DIR / "images").glob("case_*.nii.gz")))
+    found = len(list((RAW_DIR / folder).glob("case_*.nii.gz")))
     if found != NUM_CASES:
-        raise RuntimeError(f"Expected {NUM_CASES} KiTS23 images, found {found}")
+        raise RuntimeError(f"Expected {NUM_CASES} KiTS23 {folder}, found {found}")
 
 
 def download() -> None:
     download_metadata()
     download_images()
+
+
+def download_with_segmentations() -> None:
+    download()
+    download_images(folder="segmentations")
 
 
 @cache
@@ -106,6 +121,21 @@ def liver_disease_labels(metadata: tuple[dict, ...] | list[dict]) -> pd.DataFram
     return pd.DataFrame(rows, columns=["case_id", "label"])
 
 
+def malignancy_labels(metadata: tuple[dict, ...] | list[dict]) -> pd.DataFrame:
+    """1 if the resected kidney tumour is malignant, 0 if benign (KiTS23 ``malignant``,
+    from the pathology report); cases without the field are left out (7 of 489).
+
+    Same target as Curia's "kidney lesion malignancy" (CuriaBench O1, D41): 439
+    malignant, 43 benign at the pinned revision.
+    """
+    rows = [
+        {"case_id": case["case_id"], "label": int(case["malignant"])}
+        for case in metadata
+        if case["malignant"] is not None
+    ]
+    return pd.DataFrame(rows, columns=["case_id", "label"])
+
+
 def totalseg_inputs(case_id: str, device: str, roi: str) -> CaseInputs:
     """CT plus a cached TotalSegmentator mask of ``roi`` (KiTS has no organ masks)."""
     mask = TOTALSEG_DIR / f"{case_id}.nii.gz"
@@ -127,4 +157,19 @@ KITS_LIVER = ClassificationTask(
     pad_value=CT_PAD_VALUE,
     # Paper protocol: always crop, fall back to the image centre if the liver is missed.
     require_roi=False,
+)
+
+KITS_MALIGNANT = ClassificationTask(
+    name="kits_malignant",
+    source=SOURCE,
+    description="KiTS23 CT, crop around the kidney tumour, target: malignant vs benign",
+    target="malignant",
+    roi="kidney tumour (KiTS23 segmentation, label 2; cysts excluded)",
+    modality="CT",
+    download=download_with_segmentations,
+    load_labels=lambda: malignancy_labels(load_metadata()),
+    case_inputs=lambda case_id, device: CaseInputs(
+        image_path(case_id), segmentation_path(case_id), TUMOUR_LABEL
+    ),
+    pad_value=CT_PAD_VALUE,
 )

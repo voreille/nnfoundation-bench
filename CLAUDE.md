@@ -73,6 +73,11 @@ code skips work that is already done.
   logistic-regression probe per fold. Runs are named `<model>_frozen_<pooling>_logreg`.
   Tasks with named ROIs (HECKTOR 2022: GTVp, GTVn) also pool per ROI and as their
   concatenation (`gtvp_mean`, `gtvn_mean`, `roi_concat_mean`).
+  `--model dinov2|dinov2_3p` is the 2D natural-image baseline (D38, rows B1-B6): DINOv2
+  ViT-L slice by slice on the QC crops (axial, or 3 planes on 24³), same poolings and
+  probes. Code in `modeling/slice_features.py`; weights pinned in `weights.HUB_MODELS`.
+  `--model curia|curia_3p|curia2|curia2_3p` (`curia_512`, `curia2_512`: 512 px, D42): Curia / Curia-2 radiology 2D encoders, same
+  pipeline, Curia's own input normalisation (D40, rows C1-C12). Gated: `hf auth login` on the host.
 - **Survival tasks** (`labels.csv` has `time`, `event`; HECKTOR 2022 RFS): every probe is a
   ridge Cox model, runs end in `_cox`, and the metric is the C-index (`cindex`), plus a
   within-centre C-index (D27). Code in `modeling/survival.py`.

@@ -19,9 +19,13 @@ import typer
 from loguru import logger
 
 from nnfoundation_bench.config import PROCESSED_DATA_DIR
-from nnfoundation_bench.modeling.features import POOLINGS, load_pooled, task_labels
+from nnfoundation_bench.modeling.features import (
+    FEATURE_MODELS,
+    POOLINGS,
+    load_pooled,
+    task_labels,
+)
 from nnfoundation_bench.modeling.runs import processed_task, results_dir
-from nnfoundation_bench.weights import MODELS
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
@@ -37,7 +41,7 @@ COX_ALPHAS = tuple(10.0**k for k in range(-1, 6))
 
 def cox_run_name(source: str, detail: str | None = None) -> str:
     """``vit_frozen_roi_mean_cox``, ``radiomics_original_cox``, ``covariates_age_cox``."""
-    if source in MODELS:
+    if source in FEATURE_MODELS:
         return f"{source}_frozen_{detail}_cox"
     return f"{source}_{detail}_cox"
 
@@ -148,7 +152,7 @@ def cox_folds(task: str, run: str, x: np.ndarray) -> list[float]:
 def probe(
     task: str,
     model: str = typer.Option(
-        "vit", help=f"{', '.join(MODELS)} (frozen features), radiomics or covariates"
+        "vit", help=f"{', '.join(FEATURE_MODELS)} (frozen features), radiomics or covariates"
     ),
     pooling: Annotated[
         list[str] | None, typer.Option(help="Poolings of the frozen features (default: all)")
@@ -163,7 +167,7 @@ def probe(
     if is_survival(task):  # its own probes are Cox already, under the same run names
         raise typer.Exit(f"{task} is a survival-only task: use nnfb-features probe (D27, D33)")
     cases, _, _ = task_labels(task)
-    if model in MODELS:
+    if model in FEATURE_MODELS:
         for pool in pooling or POOLINGS:
             x = load_pooled(task, model, pool, cases)
             cox_folds(task, cox_run_name(model, pool), x)
@@ -214,7 +218,7 @@ def combine_cox_folds(task: str, run: str, x_image: np.ndarray, x_cov: np.ndarra
 @app.command()
 def combine(
     task: str,
-    model: str = typer.Option("vit", help=f"{', '.join(MODELS)} or radiomics"),
+    model: str = typer.Option("vit", help=f"{', '.join(FEATURE_MODELS)} or radiomics"),
     pooling: Annotated[
         list[str] | None, typer.Option(help="Poolings (default: all; not radiomics)")
     ] = None,

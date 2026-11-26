@@ -9,7 +9,9 @@ features of several single-modality tasks of the same cases (late fusion, D14, D
 
 The encoder is built with glovita's ``nnFoundationEncoder`` (same weights and
 architecture as fine-tuning). glovita's head sees the mean of this feature map
-(``mean`` below); the other poolings are what we compare against it.
+(``mean`` below); the other poolings are what we compare against it. The 2D baselines
+(``dinov2``, ``dinov2_3p``, D38) run slice by slice on the QC crops instead
+(``slice_features``) and are pooled and probed the same way.
 """
 
 import json
@@ -22,10 +24,11 @@ import typer
 from loguru import logger
 from tqdm import tqdm
 
-from nnfoundation_bench.config import CROP_SIZE, PROCESSED_DATA_DIR, RESULTS_DIR
+from nnfoundation_bench.config import CROP_SIZE, INTERIM_DATA_DIR, PROCESSED_DATA_DIR, RESULTS_DIR
 from nnfoundation_bench.datasets import get_task
 from nnfoundation_bench.modeling.predict import binary_metrics
 from nnfoundation_bench.modeling.runs import processed_task, results_dir
+from nnfoundation_bench.modeling.slice_features import SLICE_ENCODERS
 from nnfoundation_bench.modeling.survival import (
     fit_cox_probe,
     probe_kind,
@@ -36,6 +39,9 @@ from nnfoundation_bench.weights import MODELS, get_checkpoint
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
+# Frozen encoders: nnFoundation (3D) and the slice-wise 2D baselines (D38).
+FEATURE_MODELS = (*MODELS, *SLICE_ENCODERS)
+
 # ROI dilation for ``roi_margin_*`` poolings, in mm (= voxels at 1 mm).
 ROI_MARGIN_MM = 10.0
 # Weighted means of real embeddings only: a per-channel max mixes coordinates from
@@ -43,6 +49,9 @@ ROI_MARGIN_MM = 10.0
 POOLINGS = ("mean", "roi_mean", "roi_margin_mean")
 # Concatenation of the per-ROI means (tasks with ``roi_names``), built at probe time.
 CONCAT_POOLING = "roi_concat_mean"
+# Same poolings over L2-normalised tokens (every token weighs the same, only its direction
+# counts), for the 2D slice encoders (D39): ``roi_mean_l2`` etc.
+L2_SUFFIX = "_l2"
 # Inverse L2 strengths tried on the validation split.
 PROBE_CS = tuple(10.0**k for k in range(-4, 3))
 
@@ -56,13 +65,14 @@ def probe_run_name(model: str, pooling: str, kind: str = "logreg") -> str:
     return f"{model}_frozen_{pooling}_{kind}"
 
 
-def task_poolings(task: str) -> tuple[str, ...]:
+def task_poolings(task: str, model: str | None = None) -> tuple[str, ...]:
     """POOLINGS, plus ``<roi>_mean`` per named ROI and their concatenation if the task has
-    named ROIs (e.g. GTVp and GTVn)."""
+    named ROIs (e.g. GTVp and GTVn). For a 2D slice encoder (``model``), also every pooling
+    but the concatenation over L2-normalised tokens (D39)."""
     names = [name for _, name in get_task(task).roi_names]
-    if not names:
-        return POOLINGS
-    return (*POOLINGS, *(f"{n}_mean" for n in names), CONCAT_POOLING)
+    base = (*POOLINGS, *(f"{n}_mean" for n in names))
+    l2 = tuple(p + L2_SUFFIX for p in base) if model in SLICE_ENCODERS else ()
+    return (*base, *((CONCAT_POOLING,) if names else ()), *l2)
 
 
 def cell_weights(mask: np.ndarray, grid: tuple[int, ...]) -> np.ndarray:
@@ -85,27 +95,55 @@ def dilate(mask: np.ndarray, margin: float) -> np.ndarray:
 
 
 def pool_features(
-    feature_map: np.ndarray, mask: np.ndarray, roi_names: tuple[tuple[int, str], ...] = ()
-) -> dict[str, np.ndarray]:
+    feature_map, mask: np.ndarray, roi_names: tuple[tuple[int, str], ...] = (), l2: bool = False
+):
     """Pool a (C, gz, gy, gx) map in every ``POOLINGS`` way; ``mask`` is (z, y, x) uint8.
 
     ROI poolings weight each cell by the fraction of ROI voxels it holds; ``roi`` is the
     union of all mask values. Without a ROI they fall back to the whole-crop mean. Each
     ``(value, name)`` of ``roi_names`` adds ``<name>_mean`` over ``mask == value``, NaN
     when that ROI is absent (imputed in the probe like any missing value).
+
+    ``l2`` adds every pooling again over tokens scaled to unit L2 norm (``<pooling>_l2``,
+    D39). ``feature_map`` is a numpy array or a torch tensor; a tensor is pooled on its
+    device (the axial 2D maps are ~450 MB, D38), and the pooled vectors come back as numpy.
     """
-    flat = feature_map.reshape(feature_map.shape[0], -1).astype(np.float32)
-    pooled = {"mean": flat.mean(1)}
-    grid = feature_map.shape[1:]
+    grid = tuple(feature_map.shape[1:])
+    n_cells = int(np.prod(grid))
+    # Pooling name -> cell weights summing to 1; None: ROI absent.
+    weights = {"mean": np.full(n_cells, 1 / n_cells, np.float32)}
     for name, roi in (("roi", mask > 0), ("roi_margin", dilate(mask > 0, ROI_MARGIN_MM))):
         w = cell_weights(roi, grid).reshape(-1)
-        pooled[f"{name}_mean"] = flat @ w / w.sum() if w.sum() > 0 else pooled["mean"]
+        weights[f"{name}_mean"] = w / w.sum() if w.sum() > 0 else weights["mean"]
     for value, name in roi_names:
         w = cell_weights(mask == value, grid).reshape(-1)
-        pooled[f"{name}_mean"] = (
-            flat @ w / w.sum() if w.sum() > 0 else np.full(len(flat), np.nan, np.float32)
-        )
-    return pooled
+        weights[f"{name}_mean"] = w / w.sum() if w.sum() > 0 else None
+
+    if isinstance(feature_map, np.ndarray):
+        flat = feature_map.reshape(feature_map.shape[0], -1).astype(np.float32)
+        maps = {"": flat}
+        if l2:
+            maps[L2_SUFFIX] = flat / np.linalg.norm(flat, axis=0, keepdims=True).clip(1e-12)
+
+        def matvec(x, w):
+            return x @ w
+    else:
+        import torch
+
+        flat = feature_map.reshape(feature_map.shape[0], -1).float()
+        maps = {"": flat}
+        if l2:
+            maps[L2_SUFFIX] = flat / flat.norm(dim=0, keepdim=True).clamp_min(1e-12)
+
+        def matvec(x, w):
+            return (x @ torch.from_numpy(w).to(x.device)).cpu().numpy()
+
+    nan = np.full(len(flat), np.nan, np.float32)
+    return {
+        name + suffix: nan if w is None else matvec(x, w)
+        for suffix, x in maps.items()
+        for name, w in weights.items()
+    }
 
 
 def build_encoder(model: str, device: str):
@@ -144,16 +182,42 @@ def feature_map(encoder, x):
     return tokens.transpose(1, 2).reshape(tokens.shape[0], -1, *grid)  # (B, 1056, 24, 24, 24)
 
 
+def _missing_keys(path: Path, keys: list[str]) -> bool:
+    """True if the features file is absent or lacks a pooling (e.g. added later, D39)."""
+    if not path.exists():
+        return True
+    with np.load(path) as f:
+        return not set(keys) <= set(f.files)
+
+
 def _read_b2nd(path: Path) -> np.ndarray:
     import blosc2
 
     return blosc2.open(str(path), mode="r")[...]
 
 
+def _slice_map(task: str, case: str, model, encoder, device: str, shape):
+    """Slice-wise 2D feature map of one case (a tensor on ``device``), from its QC crop in
+    HU / SUV / MR units (the z-scored arrays lose the absolute scale the CT and PET windows
+    need)."""
+    import SimpleITK as sitk
+
+    from nnfoundation_bench.modeling.slice_features import prepare, slice_feature_map
+
+    path = INTERIM_DATA_DIR / processed_task(task) / "images" / f"{case}.nii.gz"
+    crop = sitk.GetArrayFromImage(sitk.ReadImage(path))
+    if crop.shape != tuple(shape):
+        raise ValueError(f"{case}: QC crop {crop.shape} is not on the mask grid {shape}")
+    volume = prepare(crop, get_task(task).modality, encoder)
+    return slice_feature_map(
+        model, volume, encoder.planes, device, to_numpy=False, encoder=encoder
+    )
+
+
 @app.command()
 def extract(
     task: str,
-    model: str = typer.Option("cnn", help=f"Pretrained model: {', '.join(MODELS)}"),
+    model: str = typer.Option("cnn", help=f"Pretrained model: {', '.join(FEATURE_MODELS)}"),
     device: str = typer.Option("cuda:0", help="Torch device"),
     save_maps: bool = typer.Option(
         False, help="Also save the full feature map (float16; ViT ~29 MB per case)"
@@ -167,21 +231,33 @@ def extract(
     cases = sorted(json.loads((root / "labels.json").read_text()))
     out_dir = features_dir(task, model)
     out_dir.mkdir(parents=True, exist_ok=True)
-    todo = [c for c in cases if overwrite or not (out_dir / f"{c}.npz").exists()]
+    keys = [p for p in task_poolings(task, model) if p != CONCAT_POOLING]
+    todo = [c for c in cases if overwrite or _missing_keys(out_dir / f"{c}.npz", keys)]
     logger.info(f"{task} / {model}: {len(todo)} of {len(cases)} cases to extract")
     if not todo:
         return
 
     roi_names = get_task(task).roi_names
-    encoder = build_encoder(model, device)
+    slice_encoder = SLICE_ENCODERS.get(model)
+    if slice_encoder:
+        from nnfoundation_bench.modeling import slice_features
+
+        encoder = slice_features.build_slice_encoder(model, device)
+        checkpoint = slice_features.checkpoint(model)
+    else:
+        encoder = build_encoder(model, device)
+        checkpoint = MODELS[model].repo + "@" + MODELS[model].revision
     for case in tqdm(todo, desc=f"{task} {model}"):
-        image = torch.from_numpy(_read_b2nd(root / "images" / f"{case}.b2nd"))[None]
         mask = _read_b2nd(root / "masks" / f"{case}.b2nd")[0]
-        with torch.no_grad(), torch.autocast(torch.device(device).type, dtype=torch.bfloat16):
-            fmap = feature_map(encoder, image.to(device)).float()[0].cpu().numpy()
-        arrays = pool_features(fmap, mask, roi_names)
+        if slice_encoder:
+            fmap = _slice_map(task, case, encoder, slice_encoder, device, mask.shape)
+        else:
+            image = torch.from_numpy(_read_b2nd(root / "images" / f"{case}.b2nd"))[None]
+            with torch.no_grad(), torch.autocast(torch.device(device).type, dtype=torch.bfloat16):
+                fmap = feature_map(encoder, image.to(device)).float()[0].cpu().numpy()
+        arrays = pool_features(fmap, mask, roi_names, l2=bool(slice_encoder))
         if save_maps:
-            arrays["map"] = fmap.astype(np.float16)
+            arrays["map"] = np.asarray(fmap.cpu() if slice_encoder else fmap, np.float16)
         tmp = out_dir / f".partial.{case}.npz"
         np.savez(tmp, **arrays)
         tmp.rename(out_dir / f"{case}.npz")
@@ -189,10 +265,10 @@ def extract(
         json.dumps(
             {
                 "model": model,
-                "checkpoint": MODELS[model].repo + "@" + MODELS[model].revision,
+                "checkpoint": checkpoint,
                 "feature_dim": int(fmap.shape[0]),
                 "grid": list(fmap.shape[1:]),
-                "poolings": [p for p in task_poolings(task) if p != CONCAT_POOLING],
+                "poolings": keys,
                 "roi_margin_mm": ROI_MARGIN_MM,
                 "precision": "bf16 autocast",
             },
@@ -341,7 +417,7 @@ def save_fold(task, run, fold, cases, labels, scores, info: dict) -> float:
 @app.command()
 def probe(
     task: str,
-    model: str = typer.Option("cnn", help=f"Pretrained model: {', '.join(MODELS)}"),
+    model: str = typer.Option("cnn", help=f"Pretrained model: {', '.join(FEATURE_MODELS)}"),
     pooling: Annotated[
         list[str] | None, typer.Option(help="Poolings to probe (default: all)")
     ] = None,
@@ -352,7 +428,7 @@ def probe(
     """
     cases, _, _ = task_labels(task)
     kind = probe_kind(task)
-    for pool in pooling or task_poolings(task):
+    for pool in pooling or task_poolings(task, model):
         x = load_pooled(task, model, pool, cases)
         probe_folds(task, probe_run_name(model, pool, kind), x)
 
@@ -415,7 +491,9 @@ def stack_folds(task: str, run: str, xs: list[np.ndarray]) -> list[float]:
 def fuse(
     tasks: Annotated[list[str], typer.Argument(help="Single-modality tasks of the same cases")],
     name: str = typer.Option(..., help="Name of the fused task in outputs/results/"),
-    model: str = typer.Option("vit", help=f"{', '.join(MODELS)} or radiomics (original set)"),
+    model: str = typer.Option(
+        "vit", help=f"{', '.join(FEATURE_MODELS)} or radiomics (original set)"
+    ),
     pooling: Annotated[
         list[str] | None, typer.Option(help="Poolings to fuse (default: all; not radiomics)")
     ] = None,
@@ -522,7 +600,9 @@ def combine_folds(task: str, run: str, x_image: np.ndarray, x_cov: np.ndarray) -
 @app.command()
 def combine(
     task: str,
-    model: str = typer.Option("vit", help=f"{', '.join(MODELS)} or radiomics (original set)"),
+    model: str = typer.Option(
+        "vit", help=f"{', '.join(FEATURE_MODELS)} or radiomics (original set)"
+    ),
     pooling: Annotated[
         list[str] | None, typer.Option(help="Poolings (default: all; not radiomics)")
     ] = None,

@@ -718,3 +718,118 @@ Merges D27 (Valentin: survival probes in `nnfb-features probe`) with D31/D32 (ou
   would be the uncertainty to report. Val is 20% of the training cohort (~90 patients for
   the 2-year variant), so hyperparameters are picked on more cases than in the repeated
   splits.
+
+## D38. 2D natural-image baseline: DINOv2 slice by slice, pooled in the ROI (active, 2026-11-25)
+- **Choice:**
+  - Encoder: DINOv2 ViT-L/14 with registers (`facebook/dinov2-with-registers-large`,
+    pinned revision), frozen. DINOv3 ViT-L/16 was the first choice (same size range as the
+    nnFoundation ViT, better dense features) but its weights are gated and our access
+    request is pending; it becomes B7.
+  - Input: the QC crop (192³ at 1 mm, HU / SUV / MR units, not the z-scored array) mapped
+    to [0, 1]: CT soft-tissue window W400/L40 (-160 to 240 HU), PET SUV 0-20 (HECKTOR 2022
+    tumour SUVmax 10-19), MR 0.5-99.5 percentiles of the volume. ASSUMPTION. Each slice is
+    resized to 336 px (24 x 24 patches, one token per 8 mm in-plane, the nnFoundation ViT
+    token size), copied to 3 channels and ImageNet-normalised.
+  - Features: last-layer patch tokens (CLS and registers dropped), stacked along the
+    slice axis. `dinov2`: axial only, map (1024, 192, 24, 24). `dinov2_3p`: axial,
+    coronal and sagittal, each averaged over blocks of 8 slices to 24³ and the three
+    averaged per cell, map (1024, 24, 24, 24).
+  - Pooling and probes unchanged (`pool_features`, logistic or Cox probe), so the rows
+    B1-B6 compare with F1-F3 one to one. Code: `modeling/slice_features.py`,
+    `nnfb-features extract --model dinov2|dinov2_3p`.
+- **Why:** a strong general-purpose 2D model is the obvious baseline for a 3D medical
+  foundation model: if it matches nnFoundation in the ROI, 3D pretraining on medical data
+  is not what makes the features work. Slice-wise inference plus ROI pooling needs no
+  training and reuses the whole pipeline. Three planes are the cheapest way to give a 2D
+  model 3D context.
+- **Rejected:** the CLS token per slice (a global summary of the slice, not of the ROI;
+  could be a later row); neighbouring slices as RGB channels (breaks the RGB statistics
+  the model was trained on; a later row if B1-B6 are close to F1-F3); upsampling slices
+  more (512+ px: finer tokens, 2-3x the cost; a sweep if small ROIs such as GTVn do
+  badly); fine-tuning or LoRA (not a frozen baseline).
+- **Open:** one fixed window per modality (a multi-window RGB for CT could help);
+  DINOv2 was trained at 518 px with patch 14 and runs here at 336 px (position embeddings
+  interpolated); pooling is over the axial map at full z resolution for `dinov2`, so a ROI
+  cell is 1 x 8 x 8 mm there and 8 mm³ for `dinov2_3p`.
+
+## D39. L2-normalised patch tokens for the 2D slice encoders (active, 2026-11-26)
+- **Choice:** for `dinov2` and `dinov2_3p` (D38), every pooling is also computed over the
+  patch tokens scaled to unit L2 norm (`<pooling>_l2`: `mean_l2`, `roi_mean_l2`,
+  `roi_margin_mean_l2`, per named ROI; not the concatenation), in the same forward pass.
+  Rows B8 (B2 + L2) and B9 (B5 + L2). The probe is unchanged (median imputation,
+  standardisation over train cases). `extract` re-extracts any feature file that lacks
+  one of the task's poolings.
+- **Why:** in a weighted mean, tokens with a large norm pull the average towards them.
+  Large ViTs such as DINOv2 turn some background patch tokens into high-norm global
+  "scratch" tokens (Darcet et al. 2023, "Vision Transformers Need Registers"); the
+  register variant we use mostly removes them, but L2 normalisation guards against any
+  that remain and makes every token count by its ROI fraction alone. Standard and cheap.
+- **Rejected for now (backlog):** smoothing along z, per-slice centring, PCA whitening.
+  The ROI mean already averages over many slices, so they are expected to matter less;
+  they wait for B8/B9.
+- **Open:** on 3 LLD-MMRI delay cases the token norms are uniform (median ~23, max ~27),
+  so B8/B9 may barely differ from B2/B5. Not applied to the nnFoundation features
+  (re-extraction of every task; only if B8/B9 beat B2/B5 clearly).
+
+
+## D40. Curia and Curia-2: 2D radiology encoders slice by slice (active, 2026-11-26)
+- **Choice:** Raidium's Curia (`raidium/curia`, arXiv:2509.06830) and Curia-2
+  (`raidium/curia-2`, arXiv:2604.01987), DINOv2-trained ViT-B models on CT and MR slices,
+  run through the slice pipeline of D38 as models `curia`, `curia_3p`, `curia2`,
+  `curia2_3p` (rows C1-C12, same poolings as B1-B6, plus the L2 poolings of D39). Inputs
+  follow the authors' `CuriaImageProcessor`: raw HU / SUV / MR values of the QC crop, no
+  windowing, bicubic resize (antialiased), z-score per slice, one channel. Planes as the
+  model card asks: axial PL (the LPS crops as they are), coronal IL and sagittal IP
+  (superior at the top: the crops' z axis is flipped for those two planes, and the tokens
+  flipped back). Last-layer patch tokens, CLS dropped (no registers). Revisions pinned in
+  `weights.HUB_MODELS`.
+- **Why:** a radiology 2D foundation model is the natural middle ground between the
+  natural-image baseline (DINOv2, D38) and the 3D nnFoundation models: same
+  slice-wise protocol, but trained on in-domain images. It tells whether the B2 > F2 gap
+  on LLD-MMRI comes from 2D slicing or from DINOv2's features.
+- **Slice size (ASSUMPTION):** 256 px for the 192 mm crop (0.75 mm per pixel), not the
+  processor's 512 px. Curia was trained on whole slices, typically 512 px at ~0.7 mm, so
+  256 px keeps the pixel size it saw, while 512 px would zoom in 2.7x. With 16 px patches
+  that is 16 x 16 tokens of 12 mm; the 3-plane maps are 16³.
+- **Rejected for now:** the task heads shipped with Curia (fixed label sets); fine-tuning;
+  512 px (backlog, if C2 lags B2).
+- **Open:** PET is outside Curia's training domain (CT, MR); on HECKTOR it is used as is.
+  The weights are gated (automatic approval): accept the terms on the model page and log
+  in (`hf auth login`) on the host before the first extraction. Patch size and registers
+  are read from the config at load time (checked: slice size must be a multiple of the
+  patch). Downloaded configs (2026-11-26): both are plain `Dinov2Model` ViT-B/16, 768
+  channels, 1 input channel, no registers. Curia-2's processor also clips below -1000
+  (`clip_below_air`, after the resize, before the z-score); `curia2*` does the same.
+
+## D41. KiTS23 kidney tumour malignancy task (`kits_malignant`) (active, 2026-11-26)
+- **Choice:** KiTS23 CT (489 training cases), label = KiTS23 `malignant` (pathology
+  report): 439 malignant, 43 benign; the 7 cases without the field are left out. ROI = the
+  expert tumour segmentation (label 2), cysts (label 3) and kidney (label 1) excluded; crop
+  centred on the tumour union (several tumours in one patient form one ROI). Same 1 mm,
+  192³ crops, splits and probes as every task; no centre column (KiTS23 metadata has none).
+  Segmentations come from the same pinned Hugging Face mirror as the images.
+- **Why:** it is Curia's "kidney lesion malignancy" task (CuriaBench / Curia-2 O1), so it
+  gives a published reference point for the Curia pipeline (D40), and it is our first CT
+  task with an expert ROI. The data overlaps with `kits_liver`, so the images are shared.
+- **Rejected:** tumour + cyst as the ROI (malignancy is a property of the tumour; cysts are
+  a separate label); per-tumour samples (labels are per patient).
+- **Open:** CuriaBench's own train/val/test split for this task (gated dataset, separate
+  access) could be added as `kits_malignant_curia`, one fold like the `_official` tasks
+  (D37), for a like-for-like comparison. CuriaBench appears to use one 2D slice per case
+  (an image and a mask per row), so even with their split our 3D crops are not the same
+  input. Strong imbalance (9 % benign): AUROC is still fine, but each test fold has only
+  ~21 benign cases.
+
+## D42. Curia / Curia-2 at 512 px (active, 2026-11-26)
+- **Choice:** models `curia_512` and `curia2_512`: as `curia` / `curia2` (D40), axial
+  slices only, resized to 512 px (the processor's `crop_size`) instead of 256 px: 0.375 mm
+  per pixel on the 192 mm crop, 32 x 32 tokens of 6 mm, map (768, 192, 32, 32). Rows
+  C13-C15 (Curia) and C16-C18 (Curia-2), same poolings. D40's 256 px default stays.
+- **Why:** on LLD-MMRI (7 phases) Curia is below DINOv2 and Curia-2 below Curia, against
+  the Curia-2 paper's ranking. Curia-2 ends its pre-training at 512 px, and the 12 mm
+  tokens at 256 px are coarse next to small liver lesions (DINOv2: 8 mm). 512 px tests
+  both: finer ROI pooling and the model's final training size. The cost: the 192 mm crop
+  is zoomed ~2x relative to Curia's whole-slice training views.
+- **Rejected for now:** 3 planes at 512 px (the axial runs decide whether it is worth it).
+- **Open:** if 512 px helps, it is unclear whether through finer tokens or the input size;
+  the pooling-grid check (backlog, D38) would separate the two.

@@ -12,16 +12,17 @@ as input channels, ROI handling, and how to pool features within a ROI.
 
 **Target: HECKTOR HPV classification at AUROC ≥ 0.99.**
 
-## Current status (2026-11-19)
+## Current status (2026-11-26)
 
 | Task | Data | Pipeline | Results |
 |------|------|----------|---------|
 | `kits_liver` | 2/489 raw images downloaded | prepare, train and predict smoke-tested | none yet |
+| `kits_malignant` | shares `kits_liver`'s images (42 GB, 2/489 downloaded) + KiTS23 tumour masks (0.1 GB) | code + smoke test on 2 cases; download and prepare on the host | none yet |
 | `hecktor_hpv_pet_gtvp` | 102 patients on the NAS, labels found | prepared: 102 cases, 52 positive, no failures | frozen probes, radiomics and centre-only reference done |
 | `mrnet_*` (9 tasks) | 1250 public exams on the NAS; all file sizes and 40 md5s checked | npy-to-NIfTI conversion and crop smoke-tested on 2 exams per plane | none yet |
-| `lld_mmri_malignant_*` (8 phases) | 498 patients x 8 series on the NAS, all files present | all 8 prepared: 498 cases, 266 malignant, no failures, no missing ROI | frozen probes and radiomics done for all 8 |
+| `lld_mmri_malignant_*` (8 phases) | 498 patients x 8 series on the NAS, all files present | all 8 prepared: 498 cases, 266 malignant, no failures, no missing ROI | frozen probes and radiomics done for all 8; 2D DINOv2 (B1-B9) all 8, Curia / Curia-2 (C1-C12) 7 of 8 |
 | `stoic_severe`, `stoic_covid` | 2000 scans | both prepared: 2000 cases, no failures; `stoic_covid` links the crops, features and radiomics of `stoic_severe` | frozen probes and radiomics done for both |
-| `hecktor2022_rfs_ct`, `hecktor2022_rfs_pet` | HECKTOR 2022 train + test on the NAS, all checked: 827 patients with RFS, 174 relapses, 9 centres | preprocessing smoke-tested on 5 cases (PET and CT crops on the same grid, labels 1/2 kept); survival probe to write | none yet |
+| `hecktor2022_rfs_ct`, `hecktor2022_rfs_pet` | HECKTOR 2022 train + test on the NAS, all checked: 827 patients with RFS, 174 relapses, 9 centres | preprocessing smoke-tested on 5 cases (PET and CT crops on the same grid, labels 1/2 kept); Cox probe, C-index and per-ROI poolings written and smoke-tested on 30 cases (D27); `_official` variants registered (D37); prepare to run on the host | none yet |
 | `rsna_spine_fracture` | 2019 studies unpacked on the NAS, checked (961 positive) | prepare on the host stopped at 1792 of 2019 (tmux session killed 2026-11-18 08:13); rerun resumes | none yet |
 | `upenn_os_*` (4 sequences) | 452 patients on the NAS (`UPENN_GBM`) + OS labels placed by hand (`GBM-UPENN-OS`), all 4 sequences, a mask for each (145 expert) | all 4 prepared on the host: 452 cases, 226 survived 1 year, no failures, no missing ROI; identical labels and splits (D31) | probes, radiomics, age reference, Cox / C-index (D32), fusion (`upenn_os_fused`) done |
 | `hecktor22_rfs_pet`, `hecktor22_rfs_ct` | HECKTOR 2022 challenge on the NAS (training + test with ground truth, `data/raw/HECKTOR2022/`), 827 patients with RFS, all CT, PET and masks present | labels checked on real data (714 labelled, 692 with GTVp); prepare both prepared on the host: 692 cases, 134 positive, 22 without GTVp excluded, no failures; identical labels and splits (D34) | probes, radiomics, age / age+HPV / centre references, Cox / C-index done; official challenge split (`_official`, D37) done |
@@ -38,10 +39,12 @@ Next steps:
    C-index (D35), image + covariate blends (D36) and PET + CT fusion done.
    Official challenge split (D37) done: ViT 0.678-0.690 single, 0.683-0.691 PET + CT fused;
    radiomics level with it (0.662-0.667). Next: bootstrap CI on the single test set.
-5. HECKTOR 2022 RFS (D26): prepare both modalities on the host; meanwhile write the Cox
-   probe, the C-index (plain, within-centre) and the per-ROI poolings (GTVp, GTVn,
-   concatenation) are written (D27); then `scripts/run_probes.sh` on both tasks. Next:
-   PET + CT late fusion (M2-M4) and the official train -> test view.
+5. HECKTOR 2022 RFS (D26, D27): code done. On the host, in this order (an `_official`
+   task needs its parent prepared; it reuses the parent's features):
+   `prepare hecktor2022_rfs_ct`, `prepare hecktor2022_rfs_pet`, `run_probes.sh` on both,
+   then `prepare` and `run_probes.sh` on `hecktor2022_rfs_<pet|ct>_official` (D37).
+   Next: PET + CT late fusion (M2-M4, `nnfb-features fuse`). Compare with the 2-year
+   variant `hecktor22_rfs_*` (centre alone C-index 0.613).
 6. RSNA: resume `prepare rsna_spine_fracture`, then `RADIOMICS="original"
    scripts/run_probes.sh rsna_spine_fracture`.
 7. Fine-tuning baseline with glovita: `FOLDS=0 scripts/run_benchmark.sh hecktor_hpv_pet_gtvp`
@@ -52,6 +55,23 @@ Next steps:
 10. KiTS Liver full run (background, paper reproduction).
 11. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
    "pathology"). Each task needs about 12 GB in `data/processed`. See D12.
+12. 2D baseline DINOv2 slice by slice (B1-B6, D38, branch `dinov2-2d-baseline`): code
+   done, smoke-tested on 3 HECKTOR HPV cases (0.7 s per case axial, 1.1 s with 3 planes,
+   2.4 GB GPU). On the host, for a prepared task:
+   `MODELS="dinov2 dinov2_3p" RADIOMICS="" scripts/run_probes.sh <task>`.
+   Then DINOv3 (B7) once the gated weights are granted.
+13. Curia / Curia-2 (C1-C12, D40): code done, weights downloaded, smoke-tested on 3 cases
+   each of LLD-MMRI delay (MR), STOIC (CT) and HECKTOR HPV (PET): 0.2 s per case axial,
+   0.3-0.4 s with 3 planes, ~1.1 GB GPU. On the host, for a prepared task:
+   `MODELS="curia curia_3p curia2 curia2_3p" RADIOMICS="" scripts/run_probes.sh <task>`.
+14. `kits_malignant` (D41), Curia's kidney tumour malignancy task: code done, smoke-tested on
+   the 2 local KiTS cases. On the host (images 42 GB, masks 0.1 GB, shared with `kits_liver`):
+   `uv run nnfb-data download kits_malignant && uv run nnfb-data prepare kits_malignant`,
+   then `MODELS="cnn vit" scripts/run_probes.sh kits_malignant` and
+   `MODELS="dinov2 dinov2_3p curia curia_3p curia2 curia2_3p" RADIOMICS="" scripts/run_probes.sh kits_malignant`.
+15. Curia at 512 px (C13-C18, D42): code done, smoke-tested on 3 delay cases (0.3-0.4 s
+   per case, 2.4 GB GPU). On the host, after the current Curia loop:
+   `MODELS="curia_512 curia2_512" RADIOMICS="" scripts/run_probes.sh <task>`.
 
 ## Backlog
 
@@ -90,6 +110,32 @@ would trigger it. Move an item to "Next steps" when it is picked up.
 - **Silence TotalSegmentator's "Output affine not equal" warning** by snapping the
   temporary 3 mm image's origin to float32-exact values (a sub-micrometre shift). Harmless,
   but about 15 lines per case in the logs.
+- **CuriaBench split for `kits_malignant`** (`kits_malignant_curia`, one fold, D41).
+  *Trigger:* access to the gated CuriaBench dataset, and C2 results on `kits_malignant`.
+- **DINOv2 ViT-B as a size-matched control** (`facebook/dinov2-with-registers-base`, 768
+  channels, as Curia). Separates model size (ViT-L vs ViT-B) from training domain in the
+  B2 > C2 gap. *Trigger:* C13-C18 still below B2.
+- **Curia with a per-volume z-score** instead of per slice (one scale for the whole crop,
+  like DINOv2's fixed window; edge slices with little tissue are not stretched).
+  *Trigger:* C13-C18 still below B2.
+- **2D baseline (D38, D39), variants for later.** Each is an extra pooling or input option
+  of `nnfb-features extract --model dinov2*`, one re-extraction per task.
+  *Trigger:* B2/B5 results on several tasks (LLD-MMRI phases, one CT task), and for the
+  first item, whether DINOv2 keeps beating the ViT. In rough order:
+  - **Pooling-grid check:** the axial map averaged over blocks of 8 slices to the ViT's
+    24³ grid before ROI pooling. Separates the encoder from the finer pooling grid
+    (1 x 8 x 8 mm for B2 vs 8 mm³ for F2) in the B2 > F2 gap.
+  - **CT window per task:** a lung window for STOIC (the soft-tissue window W400/L40
+    flattens lung tissue); or three CT windows as the RGB channels.
+  - **Smoothing along z:** average each token with its neighbours over 3-5 slices before
+    pooling (expected small: the ROI mean already averages over slices).
+  - **Per-slice centring:** subtract each slice's mean token (removes what the whole slice
+    shares, e.g. position along z; may also remove signal).
+  - **PCA whitening fit on train** (overlaps with the probe's standardisation).
+  - **Neighbouring slices as RGB** (z-1, z, z+1): 3D context in one pass, but not the RGB
+    statistics the model was trained on.
+  - **Larger slices** (512 px, ~5.5 mm tokens) for small ROIs (GTVn); **CLS token** of the
+    ROI slices as an extra row.
 - **Erase the centre from the features (LEACE, Belrose et al. 2023)** with a linear eraser
   fit per fold on train, then probe. Within-centre AUROC (D24) already removes the centre
   from the *metric*; LEACE would remove it from the *features*, which matters if centre-free
@@ -143,6 +189,25 @@ runs stay in the per-task runs tables).
 | R3 | Baseline (handcrafted) | R2 features, redundant ones dropped per fold (Spearman \|rho\| > 0.9, fit on train; ~305 of 1037 kept), L2 probe (D22) | `radiomics_filtered_corr0.9_logreg` | MRNet n/a (no ROI) | dropped (D25) |
 | R4 | Baseline (handcrafted) | R2 features, elastic-net probe (L1 share 0.1/0.5/0.9 and C chosen on val) | `radiomics_filtered_enet` | MRNet n/a (no ROI) | dropped (D25) |
 | R5 | Baseline (handcrafted) | Correlation filter (R3) then elastic net (R4) | `radiomics_filtered_corr0.9_enet` | MRNet n/a (no ROI) | dropped (D25) |
+| B1 | Baseline (2D, natural images) | DINOv2 ViT-L/14 with registers (frozen), each axial slice of the crop windowed to [0, 1] (CT W400/L40, PET SUV 0-20, MR percentiles), resized to 336 px, 3 channels; patch tokens stacked into a (1024, 192, 24, 24) map; mean over the whole crop (D38); one value per cell | `dinov2_frozen_mean_<p>` | all | ready |
+| B2 | Baseline (2D, natural images) | B1, mean over the ROI (as F2) | `dinov2_frozen_roi_mean_<p>` | MRNet n/a | ready |
+| B3 | Baseline (2D, natural images) | B1, mean over the ROI + 10 mm (as F3) | `dinov2_frozen_roi_margin_mean_<p>` | MRNet n/a | ready |
+| B4 | Baseline (2D, 3 planes) | B1 on axial, coronal and sagittal slices, each plane averaged to 24³ then the three averaged per cell (2.5D); whole crop | `dinov2_3p_frozen_mean_<p>` | all | ready |
+| B5 | Baseline (2D, 3 planes) | B4, mean over the ROI | `dinov2_3p_frozen_roi_mean_<p>` | MRNet n/a | ready |
+| B6 | Baseline (2D, 3 planes) | B4, mean over the ROI + 10 mm | `dinov2_3p_frozen_roi_margin_mean_<p>` | MRNet n/a | ready |
+| B7 | Baseline (2D) | DINOv3 ViT-L/16 in place of DINOv2 (access to the gated weights pending) |  | all | planned |
+| B8 | Baseline (2D, token norm) | B2 over L2-normalised patch tokens: every token weighs the same, only its direction counts (D39); also `mean_l2`, `roi_margin_mean_l2` (and per named ROI) in the runs tables | `dinov2_frozen_roi_mean_l2_<p>` | MRNet n/a | ready |
+| B9 | Baseline (2D, token norm) | B5 over L2-normalised patch tokens (D39) | `dinov2_3p_frozen_roi_mean_l2_<p>` | MRNet n/a | ready |
+| C1 | Radiology 2D | Curia ViT-B (frozen, Raidium, CT and MR), axial slices of the crop as raw HU / SUV / MR, bicubic resize to 256 px (0.75 mm), z-scored per slice, 1 channel; patch tokens stacked into a (768, 192, 16, 16) map; whole crop (D40); one value per cell | `curia_frozen_mean_<p>` | all | ready (weights gated) |
+| C2 | Radiology 2D | C1, mean over the ROI | `curia_frozen_roi_mean_<p>` | MRNet n/a | ready (weights gated) |
+| C3 | Radiology 2D | C1, mean over the ROI + 10 mm | `curia_frozen_roi_margin_mean_<p>` | MRNet n/a | ready (weights gated) |
+| C4 | Radiology 2D, 3 planes | C1 on axial, coronal (IL) and sagittal (IP) slices, averaged on 16³ (as B4); whole crop | `curia_3p_frozen_mean_<p>` | all | ready (weights gated) |
+| C5 | Radiology 2D, 3 planes | C4, mean over the ROI | `curia_3p_frozen_roi_mean_<p>` | MRNet n/a | ready (weights gated) |
+| C6 | Radiology 2D, 3 planes | C4, mean over the ROI + 10 mm | `curia_3p_frozen_roi_margin_mean_<p>` | MRNet n/a | ready (weights gated) |
+| C7-C9 | Radiology 2D | C1-C3 with Curia-2 | `curia2_frozen_<pooling>_<p>` | as C1-C3 | ready (weights gated) |
+| C10-C12 | Radiology 2D, 3 planes | C4-C6 with Curia-2 | `curia2_3p_frozen_<pooling>_<p>` | as C4-C6 | ready (weights gated) |
+| C13-C15 | Radiology 2D, 512 px | C1-C3 with axial slices at 512 px (0.375 mm, 32 x 32 tokens of 6 mm; D42) | `curia_512_frozen_<pooling>_<p>` | as C1-C3 | ready |
+| C16-C18 | Radiology 2D, 512 px | C7-C9 (Curia-2) at 512 px (D42) | `curia2_512_frozen_<pooling>_<p>` | as C1-C3 | ready |
 | S1 | Input size | Fixed 192³ at 1 mm (current preprocessing; same as F1-F3) | see F1-F3 | all | ready |
 | S2 | Input size | Native 1 mm, input size = FOV; ViT absolute position embedding interpolated (glovita default) |  | all | planned |
 | S3 | Input size | Same as S2, but the ViT absolute position embedding is cut out (FOV < 192) instead of interpolated, consistent with RoPE; CNN n/a |  | all | planned |
@@ -918,9 +983,31 @@ AUROC, within-centre AUROC, C-index, within-centre C-index, then every fused run
 | `cnn_fused_concat_roi_margin_mean_logreg` |  | 0.499 (n=1) | 0.513 (n=1) |
 <!-- end generated -->
 
+### hecktor2022_rfs_*_official (challenge train/test split, D37)
+
+Same patients, crops and features as `hecktor2022_rfs_*` (all 827 with RFS, crop on
+GTVp ∪ GTVn), one fold: the challenge's training cohort as train + val (80/20), its test
+cohort (CHB, MDA, USZ) as test. CHB and USZ are not in training, so the centre-only
+reference falls back to the overall rate there. C-index, then within-centre C-index;
+comparable with the challenge Task 2 leaderboard (about 0.68):
+
+<!-- generated: design hecktor2022_rfs_ct_official hecktor2022_rfs_pet_official -->
+No results yet.
+<!-- end generated -->
+
+<!-- generated: design-within hecktor2022_rfs_ct_official hecktor2022_rfs_pet_official -->
+No results yet.
+<!-- end generated -->
+
 ### kits_liver
 
 None yet.
+
+### kits_malignant
+
+<!-- generated: design kits_malignant -->
+No results yet.
+<!-- end generated -->
 
 ### mrnet_*
 
@@ -1099,9 +1186,92 @@ None yet.
   `cohort` column is now `official_split`, as in `hecktor2022.py`. The `hecktor22_*` and
   `hecktor2022_*` generated blocks now name their tasks, so the `_official` tasks get their
   own blocks. Unit-tested; to run on the host.
+- Checked PR #2 (`hecktor2022-rfs`, merged into `main`): ruff clean, 90 tests pass. The
+  centre-only references handle the official test centres unseen in training (CHB, USZ:
+  overall rate, no crash, no leakage). `hecktor2022_rfs_*` stays survival-only on its
+  `_official` variant (Cox, C-index). Added generated blocks for
+  `hecktor2022_rfs_*_official`. Still open (D33): two Cox implementations
+  (`survival.fit_cox_probe`, `cox_probe.fit_cox`), same pipeline, to fold into one.
+- Note: `table --update` rebuilds every block from the local `outputs/results/`, which
+  holds only the results run on this machine; run it where all results are (or copy them
+  over first), or it empties the other tables.
+- 2D natural-image baseline (D38, branch `dinov2-2d-baseline`): DINOv3 ViT-L/16 is gated
+  and our access request is pending, so DINOv2 ViT-L/14 with registers first (not gated,
+  pinned). `nnfb-features extract --model dinov2|dinov2_3p` runs it slice by slice on the
+  QC crops (HU / SUV), the existing poolings and probes apply; design rows B1-B6.
+  Smoke-tested on 3 HECKTOR HPV cases on the GPU (claude-box CUDA works again).
 - `hecktor2022-rfs` merged into `main` (PR #2). Official split run on lxbelwahoo: prepare
   linked the parent tasks (342 train / 86 val / 264 test, 67 test positives), then probes,
   references, Cox and PET + CT fusion; no errors. ViT ROI pooling 0.678-0.690 AUROC on the
   challenge test cohort (two unseen centres), radiomics 0.662-0.667, centre alone 0.641,
   PET + CT ViT fusion 0.683-0.691 (M2-M4). C-index up to 0.664 (ViT CT F3). Tables generated on
   lxbelwahoo (official blocks only, its outputs/ being partial).
+
+### 2026-11-26
+- DINOv2 2D baseline (D38) on `lld_mmri_malignant_delay` (host run 2026-11-25): axial ROI
+  mean (B2) 0.899 ± 0.018, above the nnFoundation ViT ROI mean (F2) 0.867 ± 0.014 on all
+  5 splits (+0.006 to +0.069) and above radiomics R1 0.823. Three planes (B5) 0.866, level
+  with F2; whole crop B1 0.692 / B4 0.722 vs F1 0.664; ROI + 10 mm B3 0.835 / B6 0.792 vs
+  F3 0.778. B5 uses the ViT's 24³ grid and ties with it, while B2 pools on 1 x 8 x 8 mm
+  cells: part of the gain may be the finer ROI weighting rather than the encoder. The
+  coronal and sagittal slices cut across the thick MR slices, which may explain B5 < B2.
+  Generated grids not rebuilt yet (the other tasks' results are not all on this machine).
+- DINOv2 on `venous` and `t2` (host, 2026-11-26). ROI mean, DINOv2 axial (B2) / 3 planes
+  (B5) / nnFoundation ViT (F2): venous 0.882 / 0.865 / 0.837 (B2 above F2 on all 5
+  splits), T2 0.797 / 0.814 / 0.808 (level, B2 above F2 on 2 of 5 splits). So far
+  DINOv2 ties with or beats the ViT in the ROI on all three phases; whole-crop and
+  ROI + 10 mm rankings as on delay.
+- Extraction slowed from ~3 to ~48 s per case on the host (arterial, also T2 at times):
+  CPU pooling of the ~450 MB axial map, two extractions in parallel. Pooling now runs on
+  the GPU on the map in place (same features, relative difference ~1e-7): ~2 s per case,
+  of which ~1.4 s is the 10 mm dilation on the CPU.
+- L2-normalised token poolings for the 2D slice encoders (D39, rows B8, B9): computed in
+  the same pass as the plain ones (`<pooling>_l2` keys). `extract` now re-extracts
+  feature files that lack a pooling, so the next `run_probes.sh` on delay, venous and T2
+  recomputes them without `--overwrite`. On 3 delay cases the DINOv2 token norms are
+  uniform (median ~23, max ~27, no high-norm outliers), so L2 changes each token's weight
+  by ~10%: expect B8/B9 close to B2/B5. Other 2D variants (z smoothing, per-slice
+  centring, PCA whitening, pooling-grid check, CT windows) parked in the backlog.
+
+- DINOv2 on the other 5 LLD-MMRI phases (host, 2026-11-26). ROI mean, DINOv2 axial (B2) /
+  3 planes (B5) / nnFoundation ViT (F2) / radiomics (R1): arterial 0.805 / 0.817 / 0.746 /
+  0.786, DWI 0.757 / - / 0.748 / 0.687, in-phase 0.729 / 0.784 / 0.760 / 0.739,
+  out-of-phase 0.728 / 0.766 / 0.697 / 0.709, pre-contrast 0.765 / 0.762 / 0.729 / 0.705.
+  Across the 8 phases the better of B2/B5 is above F2 everywhere (by 0.006 on T2 up to
+  0.069 on out-of-phase). B5 is above B2 on the T1 in/out-of-phase pair, B2 on the contrast
+  phases delay and venous. DWI B4-B6 are missing: the features were extracted but no 3-plane
+  probes ran.
+- L2 (D39) on in-phase, out-of-phase and pre-contrast, the phases run after the L2
+  commit: no effect. Every `_l2` run is within 0.005 of its plain run on average (B8 vs B2:
+  -0.003, +0.003, -0.002; B9 vs B5: -0.001, -0.003, 0.000), and most per-split differences
+  are within ±0.01. Consistent with the uniform token norms: DINOv2 with registers has no
+  outlier tokens to suppress here. Delay through DWI ran on the code from before L2 and
+  have no `_l2` runs; not worth rerunning for L2 alone.
+- Curia and Curia-2 (Raidium, DINOv2-trained ViT-B on CT and MR) added as slice encoders
+  (D40, rows C1-C12): raw intensities z-scored per slice, 256 px, coronal and sagittal
+  slices with superior at the top, as the model card asks. Unit tests only so far: the
+  weights are gated (automatic approval) and claude-box has no Hugging Face token.
+- Curia / Curia-2 weights downloaded (pinned revisions) and smoke-tested on 3 cases each
+  of MR, CT and PET: finite maps of (768, 192, 16, 16) axial and (768, 16, 16, 16) with 3
+  planes, ~0.2-0.4 s per case, ~1.1 GB GPU. Uniform token norms (Curia median ~51, max
+  ~72; Curia-2 median ~29, max ~34). Curia-2 also clips below -1000 HU, as its processor.
+- New task `kits_malignant` (D41): KiTS23 CT, expert tumour mask as ROI, malignant (439)
+  vs benign (43), the Curia papers' kidney-lesion malignancy task, so the Curia rows get a
+  published reference. Smoke test on the 2 KiTS cases on this machine: crops centred on
+  the tumour (8.5k and 11.4k tumour voxels), finite DINOv2 / Curia / Curia-2 features.
+  CuriaBench's own split is gated separately (access not requested); parked in the backlog.
+- Curia / Curia-2 on 7 LLD-MMRI phases (host, 2026-11-26; `pre` still running). ROI mean,
+  Curia axial (C2) / Curia-2 axial (C8) / DINOv2 axial (B2) / nnFoundation ViT (F2): delay
+  0.861 / 0.845 / 0.899 / 0.867, venous 0.841 / 0.814 / 0.882 / 0.837, T2 0.811 / 0.809 /
+  0.797 / 0.808, arterial 0.817 / 0.775 / 0.805 / 0.746, DWI 0.770 / 0.749 / 0.757 / 0.748,
+  in-phase 0.761 / 0.740 / 0.729 / 0.760, out-of-phase 0.718 / 0.721 / 0.728 / 0.697.
+  The best Curia run is level with or above F2, but below the best DINOv2 run (B2 or B5)
+  on 5 of 7 phases (level on arterial, 0.817; above on DWI, C3 0.781 vs 0.757). On delay and venous it is below B2 on all 5 splits. Curia-2 is
+  below Curia on 6 of 7 phases, against the paper's ranking: the 256 px input (Curia-2
+  ends pre-training at 512 px) is a suspect, so the 512 px backlog item is triggered.
+- Curia / Curia-2 at 512 px added (D42, rows C13-C18; axial only): the 256 px default
+  gives 12 mm tokens and Curia-2 ends pre-training at 512 px. Smoke test on 3 delay cases:
+  (768, 192, 32, 32) maps, 0.3-0.4 s per case, 2.4 GB GPU. Possible causes of DINOv2 >
+  Curia noted for the backlog: model size (ViT-L vs ViT-B), token size, CT-heavy
+  pre-training (164M CT vs 64M MR images), whole-slice training vs our 192 mm crops and
+  per-slice z-score.

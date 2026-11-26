@@ -2137,6 +2137,7 @@ dependencies = [
     { name = "torchvision" },
     { name = "totalsegmentator" },
     { name = "tqdm" },
+    { name = "transformers" },
     { name = "typer" },
 ]
 
@@ -2165,6 +2166,7 @@ requires-dist = [
     { name = "torchvision", index = "https://download.pytorch.org/whl/cu128" },
     { name = "totalsegmentator", specifier = ">=2.4" },
     { name = "tqdm" },
+    { name = "transformers", specifier = ">=5.22" },
     { name = "typer" },
 ]
 
