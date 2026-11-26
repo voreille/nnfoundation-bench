@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nnfoundation_bench"
-version = "0.1.0"
+version = "0.2.0"
 description = "Benchmarking nnFoundation (arXiv:2609.26924) on downstream classification tasks."
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
