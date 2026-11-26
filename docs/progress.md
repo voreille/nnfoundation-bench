@@ -1060,4 +1060,13 @@ None yet.
   cells: part of the gain may be the finer ROI weighting rather than the encoder. The
   coronal and sagittal slices cut across the thick MR slices, which may explain B5 < B2.
   Generated grids not rebuilt yet (the other tasks' results are not all on this machine).
+- DINOv2 on `venous` and `t2` (host, 2026-11-26). ROI mean, DINOv2 axial (B2) / 3 planes
+  (B5) / nnFoundation ViT (F2): venous 0.882 / 0.865 / 0.837 (B2 above F2 on all 5
+  splits), T2 0.797 / 0.814 / 0.808 (level, B2 above F2 on 2 of 5 splits). So far
+  DINOv2 ties with or beats the ViT in the ROI on all three phases; whole-crop and
+  ROI + 10 mm rankings as on delay.
+- Extraction slowed from ~3 to ~48 s per case on the host (arterial, also T2 at times):
+  CPU pooling of the ~450 MB axial map, two extractions in parallel. Pooling now runs on
+  the GPU on the map in place (same features, relative difference ~1e-7): ~2 s per case,
+  of which ~1.4 s is the 10 mm dilation on the CPU.
 
