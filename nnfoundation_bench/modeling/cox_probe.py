@@ -20,7 +20,7 @@ from loguru import logger
 
 from nnfoundation_bench.config import PROCESSED_DATA_DIR
 from nnfoundation_bench.modeling.features import POOLINGS, load_pooled, task_labels
-from nnfoundation_bench.modeling.runs import processed_task, results_dir
+from nnfoundation_bench.modeling.runs import processed_task, refuse_organ_tasks, results_dir
 from nnfoundation_bench.weights import MODELS
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
@@ -160,6 +160,7 @@ def probe(
     """Cox probe per fold, C-index on test; results like the AUROC probes, run ``*_cox``."""
     from nnfoundation_bench.modeling.survival import is_survival
 
+    refuse_organ_tasks(task, what="Cox probes")
     if is_survival(task):  # its own probes are Cox already, under the same run names
         raise typer.Exit(f"{task} is a survival-only task: use nnfb-features probe (D27, D33)")
     cases, _, _ = task_labels(task)
@@ -223,6 +224,7 @@ def combine(
     ] = None,
 ) -> None:
     """Image Cox + covariate Cox blended on val (D36). Run ``<image run>_plus_<columns>_cox``."""
+    refuse_organ_tasks(task, what="Cox blends")
     from nnfoundation_bench.modeling.features import (
         image_features,
         plus_run_name,

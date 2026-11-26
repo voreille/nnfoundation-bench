@@ -16,7 +16,7 @@ from nnfoundation_bench.config import (
     WARMUP_FRACTION,
     WEIGHT_DECAY,
 )
-from nnfoundation_bench.modeling.runs import experiment_dir, run_name
+from nnfoundation_bench.modeling.runs import experiment_dir, refuse_organ_tasks, run_name
 from nnfoundation_bench.weights import MODELS, get_checkpoint
 
 app = typer.Typer(add_completion=False)
@@ -94,6 +94,7 @@ def train(
     tag: str = typer.Option("", help="Suffix for the run name"),
 ) -> None:
     """Fine-tune MODEL on TASK, fold FOLD (full fine-tuning, best checkpoint by val AUROC)."""
+    refuse_organ_tasks(task, what="fine-tuning with glovita")
     lr = MODELS[model].lr if lr is None else lr
     run = run_name(model, lr, scratch, tag)
     cmd = build_command(

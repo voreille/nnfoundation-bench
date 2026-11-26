@@ -15,9 +15,12 @@ from loguru import logger
 from sklearn.metrics import average_precision_score, roc_auc_score
 
 from nnfoundation_bench.config import PROCESSED_DATA_DIR, RESULTS_DIR
+from nnfoundation_bench.datasets import TASKS
 from nnfoundation_bench.modeling.runs import (
     eval_run_name,
+    is_organ_task,
     processed_task,
+    refuse_organ_tasks,
     results_dir,
     run_dir,
     run_name,
@@ -42,6 +45,31 @@ def binary_metrics(labels: np.ndarray, scores: np.ndarray) -> dict:
         "ap": float("nan") if single_class else float(average_precision_score(labels, scores)),
         "n": len(labels),
         "n_positive": int(labels.sum()),
+    }
+
+
+def balanced_accuracy(labels: np.ndarray, pred: np.ndarray) -> float:
+    """Mean recall over the classes present in ``labels``."""
+    labels, pred = np.asarray(labels), np.asarray(pred)
+    return float(np.mean([np.mean(pred[labels == k] == k) for k in np.unique(labels)]))
+
+
+def multiclass_metrics(labels: np.ndarray, proba: np.ndarray, classes) -> dict:
+    """Organ tasks (D38): balanced accuracy (headline), accuracy and macro one-vs-rest
+    AUROC over the classes present in ``labels`` (NaN with fewer than two). ``proba`` has
+    one column per entry of ``classes``."""
+    labels, classes = np.asarray(labels), np.asarray(classes)
+    pred = classes[np.asarray(proba).argmax(1)]
+    column = {c: i for i, c in enumerate(classes.tolist())}
+    present = np.unique(labels)
+    if len(present) > 1:
+        aucs = [roc_auc_score(labels == k, proba[:, column[k]]) for k in present.tolist()]
+    return {
+        "balanced_accuracy": balanced_accuracy(labels, pred),
+        "accuracy": float(np.mean(pred == labels)),
+        "auroc_macro": float(np.mean(aucs)) if len(present) > 1 else float("nan"),
+        "n": len(labels),
+        "n_classes": len(classes),
     }
 
 
@@ -97,6 +125,7 @@ def predict(
     Results go to ``outputs/results/<task>/<run>/`` for ``best`` and
     ``<run>_last/`` for ``last``, so evaluating one never overwrites the other.
     """
+    refuse_organ_tasks(task, what="glovita inference")
     run = run_name(model, lr, scratch, tag)
     result_run = eval_run_name(run, checkpoint)
     out_dir = results_dir(task, result_run, fold)
@@ -141,6 +170,7 @@ def group_baseline(task: str) -> None:
     confounders; model AUROCs should be read against it. Survival tasks: risk = the
     group's events per day of follow-up, scored by C-index.
     """
+    refuse_organ_tasks(task, what="the group baseline")
     root = PROCESSED_DATA_DIR / processed_task(task)
     labels = pd.read_csv(root / "labels.csv", dtype={"case_id": str})
     if "group" not in labels:
@@ -195,6 +225,7 @@ def covariate_baseline(
     """
     from nnfoundation_bench.modeling.features import probe_folds, task_labels
 
+    refuse_organ_tasks(task, what="covariate baselines")
     columns = column or ["age"]
     labels = pd.read_csv(
         PROCESSED_DATA_DIR / processed_task(task) / "labels.csv", dtype={"case_id": str}
@@ -252,12 +283,27 @@ DESIGN_RUNS = {
 
 
 def metric_key(task: str) -> str:
-    """metrics.json key of the task's main metric: ``cindex`` or ``auroc``."""
+    """metrics.json key of the task's main metric: ``balanced_accuracy`` (organ tasks, D38),
+    ``cindex`` or ``auroc``."""
+    if is_organ_task(task):
+        return "balanced_accuracy"
     return "cindex" if survival_table(task) is not None else "auroc"
 
 
 def metric_label(task: str) -> str:
+    if is_organ_task(task):
+        return "balanced accuracy"
     return "C-index" if survival_table(task) is not None else "AUROC"
+
+
+def metric_stats(task: str, key: str) -> pd.DataFrame:
+    """Test ``mean``, ``std`` and fold ``count`` of metrics.json ``key`` per run of TASK
+    (runs without that key are left out; empty if none)."""
+    paths = (RESULTS_DIR / task).glob("*/fold*/metrics.json")
+    rows = [r for p in paths if key in (r := json.loads(p.read_text()))]
+    if not rows:
+        return pd.DataFrame(columns=["mean", "std", "count"])
+    return pd.DataFrame(rows).groupby("run")[key].agg(["mean", "std", "count"])
 
 
 def task_groups(task: str) -> pd.Series | None:
@@ -280,11 +326,10 @@ def auroc_stats(task: str, within_group: bool = False) -> pd.DataFrame:
     empty = pd.DataFrame(columns=["mean", "std", "count"])
     key = metric_key(task)
     if not within_group:
-        paths = (RESULTS_DIR / task).glob("*/fold*/metrics.json")
         # Only runs reporting the task's metric: nnfb-cox runs on a task with a binary
         # label (D32) report a C-index and are left out of its AUROC tables.
-        rows = [r for p in paths if key in (r := json.loads(p.read_text()))]
-    elif (groups := task_groups(task)) is None:
+        return metric_stats(task, key)
+    if (groups := task_groups(task)) is None:
         return empty
     else:
         rows = []
@@ -314,10 +359,14 @@ def format_auroc(row: pd.Series, n_folds: int = 5) -> str:
     return f"{row['mean']:.3f}{std}{folds}"
 
 
+def format_stats(stats: pd.DataFrame) -> pd.Series:
+    """``"mean ± std"`` per run of a ``*_stats`` table (empty Series if empty)."""
+    return stats.apply(format_auroc, axis=1) if len(stats) else pd.Series(dtype=str)
+
+
 def auroc_summary(task: str, within_group: bool = False) -> pd.Series:
     """``"mean ± std"`` test AUROC per run of TASK (empty if nothing is evaluated)."""
-    stats = auroc_stats(task, within_group)
-    return stats.apply(format_auroc, axis=1) if len(stats) else pd.Series(dtype=str)
+    return format_stats(auroc_stats(task, within_group))
 
 
 def design_table(
@@ -477,6 +526,26 @@ def runs_table(
     return "\n".join(lines)
 
 
+# Organ tasks (D38): F1-F3 probes, three metrics per task (``<!-- generated: multiclass -->``).
+MULTICLASS_DESIGNS = {k: DESIGN_RUNS[k] for k in ("F1", "F2", "F3")}
+MULTICLASS_METRICS = {
+    "balanced_accuracy": "balanced accuracy",
+    "accuracy": "accuracy",
+    "auroc_macro": "macro AUROC",
+}
+
+
+def multiclass_table(tasks: list[str]) -> str:
+    """F1-F3 grid of organ tasks: one column per (task, metric), cells ``CNN / ViT``."""
+    summaries, headers = {}, {}
+    for task in tasks:
+        for key, label in MULTICLASS_METRICS.items():
+            column = f"{task}:{key}"
+            summaries[column] = format_stats(metric_stats(task, key))
+            headers[column] = f"{task} ({label})"
+    return design_table(summaries, headers=headers, designs=MULTICLASS_DESIGNS, ref=None)
+
+
 # Generated blocks in a markdown file (task patterns are shell globs, default: all):
 #   <!-- generated: design [patterns...] -->         ...  <!-- end generated -->
 #   <!-- generated: design-within [patterns...] -->  ...  <!-- end generated -->
@@ -484,6 +553,9 @@ def runs_table(
 #   <!-- generated: cindex [patterns...] -->         ...  <!-- end generated -->
 #   <!-- generated: cindex-within [patterns...] -->  ...  <!-- end generated -->
 #   <!-- generated: adjusted <task> -->              ...  <!-- end generated -->
+#   <!-- generated: multiclass [patterns...] -->     ...  <!-- end generated -->
+# design / design-within / runs: binary and survival tasks; organ tasks (D38) only show in
+# multiclass (balanced accuracy, accuracy, macro AUROC).
 # design-within: within-centre AUROC, for the tasks that have a group column.
 # cindex: C-index of the nnfb-cox probes (D32), for tasks with a binary label plus
 # time/event; survival-only tasks (D27) show their C-index in the design grids.
@@ -503,9 +575,16 @@ def match_tasks(patterns: list[str]) -> list[str]:
 
 def render_block(spec: str) -> str:
     kind, *args = spec.split()
+    if kind == "multiclass":
+        tasks = [t for t in match_tasks(args) if is_organ_task(t)]
+        return multiclass_table(tasks) if tasks else "No results yet."
     if kind in ("design", "design-within"):
         within = kind == "design-within"
-        tasks = [t for t in match_tasks(args) if not within or task_groups(t) is not None]
+        tasks = [
+            t
+            for t in match_tasks(args)
+            if not is_organ_task(t) and (not within or task_groups(t) is not None)
+        ]
         if not tasks:
             return "No results yet."
         return design_table(
@@ -525,6 +604,8 @@ def render_block(spec: str) -> str:
         return adjusted_table(args[0])
     if kind == "runs" and len(args) == 1:
         task = args[0]
+        if is_organ_task(task):
+            return f"{task} is an organ task: see its multiclass block."
         stats = auroc_stats(task)
         if not len(stats):
             return "No results yet."
@@ -560,7 +641,19 @@ def table(
         update.write_text(update_generated(update.read_text()))
         logger.success(f"Updated the generated tables of {update}")
         return
-    kind = "design-within" if within else "design"
+    if within:
+        # A pattern that selects only organ tasks asks for something they do not have; a
+        # broader one (``*_official``) is fine, design-within skips organ tasks.
+        for pattern in tasks or []:
+            matched = [n for n in TASKS if fnmatch(n, pattern)]
+            if matched and all(TASKS[n].organ_task for n in matched):
+                refuse_organ_tasks(*matched, what="within-centre AUROC")
+    organ_only = bool(tasks) and all(
+        (matched := [n for n in TASKS if fnmatch(n, t)])
+        and all(TASKS[n].organ_task for n in matched)
+        for t in tasks
+    )
+    kind = "multiclass" if organ_only else "design-within" if within else "design"
     typer.echo(render_block(" ".join([kind, *(tasks or [])])))
 
 

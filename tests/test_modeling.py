@@ -264,7 +264,7 @@ def _write_organ_results(tmp_path, task=ORGAN_TASK):
             out = tmp_path / "results" / task / run / f"fold{fold}"
             out.mkdir(parents=True)
             metrics = {"task": task, "run": run, "fold": fold, "balanced_accuracy": v,
-                       "accuracy": v + 0.05, "auroc_macro": min(v + 0.1, 1.0), "n": 100,
+                       "accuracy": min(v + 0.05, 1.0), "auroc_macro": min(v + 0.1, 1.0), "n": 100,
                        "n_classes": 98, "val_balanced_accuracy": v, "probe_C": 1.0}  # fmt: skip
             (out / "metrics.json").write_text(json.dumps(metrics))
 

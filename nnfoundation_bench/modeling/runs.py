@@ -52,3 +52,23 @@ def processed_task(task: str) -> str:
     the first source of a fused task (all sources share labels and splits)."""
     sources = fusion_sources(task)
     return sources[0] if sources else task
+
+
+def is_organ_task(task: str) -> bool:
+    """Whether TASK (or the source of a fused task) is a multi-class organ task (D38)."""
+    from nnfoundation_bench.datasets import TASKS
+
+    registered = TASKS.get(processed_task(task))
+    return registered is not None and registered.organ_task
+
+
+def refuse_organ_tasks(*tasks: str, what: str) -> None:
+    """Exit with a clear error if one of TASKS is an organ task: they are probe-only."""
+    import typer
+
+    for task in tasks:
+        if is_organ_task(task):
+            raise typer.Exit(
+                f"{task} is a multi-class organ task (D38): {what} is not supported. "
+                "Organ tasks are probe-only: nnfb-features extract / probe."
+            )

@@ -12,7 +12,7 @@ as input channels, ROI handling, and how to pool features within a ROI.
 
 **Target: HECKTOR HPV classification at AUROC ≥ 0.99.**
 
-## Current status (2026-11-19)
+## Current status (2026-11-26)
 
 | Task | Data | Pipeline | Results |
 |------|------|----------|---------|
@@ -25,6 +25,7 @@ as input channels, ROI handling, and how to pool features within a ROI.
 | `rsna_spine_fracture` | 2019 studies unpacked on the NAS, checked (961 positive) | prepare on the host stopped at 1792 of 2019 (tmux session killed 2026-11-18 08:13); rerun resumes | none yet |
 | `upenn_os_*` (4 sequences) | 452 patients on the NAS (`UPENN_GBM`) + OS labels placed by hand (`GBM-UPENN-OS`), all 4 sequences, a mask for each (145 expert) | all 4 prepared on the host: 452 cases, 226 survived 1 year, no failures, no missing ROI; identical labels and splits (D31) | probes, radiomics, age reference, Cox / C-index (D32), fusion (`upenn_os_fused`) done |
 | `hecktor22_rfs_pet`, `hecktor22_rfs_ct` | HECKTOR 2022 challenge on the NAS (training + test with ground truth, `data/raw/HECKTOR2022/`), 827 patients with RFS, all CT, PET and masks present | labels checked on real data (714 labelled, 692 with GTVp); prepare both prepared on the host: 692 cases, 134 positive, 22 without GTVp excluded, no failures; identical labels and splits (D34) | probes, radiomics, age / age+HPV / centre references, Cox / C-index done; official challenge split (`_official`, D37) done |
+| `totalseg_ct_organs`, `totalseg_mri_organs` (+ `_official`) | TotalSegmentator CT v2.0.1 / MRI v2.0.0 (Zenodo), to place by hand under `data/raw/totalsegmentator_<ct\|mri>/` | scan layout, extract-time organ crops and multi-class probe unit-tested on synthetic scans (D38); smoke test on real scans pending | none yet |
 | `brats_gbm_*` (4 sequences) | 1809 scans on the NAS, 1621 with seg; metadata xlsx read | all 4 prepared on the host: 632 cases, 384 GBM, no failures, no missing ROI; identical labels and splits (D28) | probes, radiomics, site and age references, fusion (`brats_gbm_fused`) done |
 
 Next steps:
@@ -50,11 +51,17 @@ Next steps:
    the FOV sweep.
 9. LLD-MMRI late fusion over the phases (M2-M4, D14, D15, D30): `nnfb-features fuse` is ready.
 10. KiTS Liver full run (background, paper reproduction).
-11. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
+11. TotalSegmentator organ recognition (D38): download and unzip both Zenodo records, smoke-test
+   `prepare` + `extract` on 2 scans, then `RADIOMICS="" scripts/run_probes.sh totalseg_ct_organs`
+   (and MRI), then `prepare totalseg_<ct|mri>_organs_official` and its probes.
+12. MRNet: prepare and run `mrnet_abnormal_sagittal` first (closest to the paper's
    "pathology"). Each task needs about 12 GB in `data/processed`. See D12.
 
 ## Backlog
 
+- **Cap the samples per class for the organ probes** (D38): CT has ~45k train samples x 98
+  classes, ribs and vertebrae dominate. *Trigger:* `nnfb-features probe totalseg_ct_organs`
+  too slow on the host.
 - **Age-and-site stratified AUROC as a generated table** (pairs from the same centre and age
   band, like D24 with a finer group). On BraTS it separated the age shortcut from tumour
   signal (Results). *Trigger:* another task with an `age` column, or reporting BraTS.
@@ -918,6 +925,14 @@ AUROC, within-centre AUROC, C-index, within-centre C-index, then every fused run
 | `cnn_fused_concat_roi_margin_mean_logreg` |  | 0.499 (n=1) | 0.513 (n=1) |
 <!-- end generated -->
 
+### totalseg_*_organs (multi-class organ recognition, D38)
+
+Balanced accuracy, accuracy and macro one-vs-rest AUROC; cells `CNN / ViT`.
+
+<!-- generated: multiclass totalseg_* -->
+No results yet.
+<!-- end generated -->
+
 ### kits_liver
 
 None yet.
@@ -1105,3 +1120,11 @@ None yet.
   challenge test cohort (two unseen centres), radiomics 0.662-0.667, centre alone 0.641,
   PET + CT ViT fusion 0.683-0.691 (M2-M4). C-index up to 0.664 (ViT CT F3). Tables generated on
   lxbelwahoo (official blocks only, its outputs/ being partial).
+
+### 2026-11-26
+- TotalSegmentator CT/MRI organ recognition (issue #4, D38): tasks `totalseg_ct_organs` (98
+  classes) and `totalseg_mri_organs` (50) and their `_official` variants. `prepare` stores
+  whole scans at 1 mm with a merged label map (scan layout); `extract` cuts each organ's
+  192³ crop at extract time; the probe is a multinomial logistic regression scored by
+  balanced accuracy, accuracy and macro AUROC (`multiclass` generated block). Other
+  commands refuse organ tasks. Unit-tested on synthetic scans; to run on the host.

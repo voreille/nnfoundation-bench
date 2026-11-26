@@ -73,6 +73,11 @@ code skips work that is already done.
   logistic-regression probe per fold. Runs are named `<model>_frozen_<pooling>_logreg`.
   Tasks with named ROIs (HECKTOR 2022: GTVp, GTVn) also pool per ROI and as their
   concatenation (`gtvp_mean`, `gtvn_mean`, `roi_concat_mean`).
+- **Organ tasks** (`totalseg_<ct|mri>_organs[_official]`, D38): multi-class, one sample per
+  (scan, organ), `case_id = <scan>__<organ>`. `prepare` stores whole scans + label maps
+  (`scans.csv`, `organs.csv`), `extract` crops per organ in memory, `probe` is multinomial
+  (balanced accuracy; `<!-- generated: multiclass <tasks> -->`). Probe-only: other commands
+  refuse them. Run probes with `RADIOMICS=""`.
 - **Survival tasks** (`labels.csv` has `time`, `event`; HECKTOR 2022 RFS): every probe is a
   ridge Cox model, runs end in `_cox`, and the metric is the C-index (`cindex`), plus a
   within-centre C-index (D27). Code in `modeling/survival.py`.

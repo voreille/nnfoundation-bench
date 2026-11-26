@@ -48,6 +48,10 @@ EFFECTIVE_BATCH_SIZE = 32
 WARMUP_FRACTION = 0.1
 WEIGHT_DECAY = 0.01
 
+# Organ tasks (D38): smallest organ volume (mm^3 = voxels at 1 mm) that becomes a sample;
+# smaller ones are slivers at the edge of the field of view.
+MIN_ORGAN_MM3 = 1000
+
 # Values used outside the field of view after cropping/resampling.
 CT_PAD_VALUE = -1024  # air, HU
 PET_PAD_VALUE = 0.0  # SUV

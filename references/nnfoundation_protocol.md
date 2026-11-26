@@ -162,3 +162,16 @@ datasets" matches the 8 test rows; RSNA Spine and MRNet were used only for devel
 - Official split (D37): `hecktor22_rfs_<pet|ct>_official` and `hecktor2022_rfs_<ct|pet>_official`
   keep the challenge's train/test cohorts (test: CHB, MDA, USZ) as one fold, 20% of train as
   val, so results can be set next to the challenge leaderboard.
+
+### `totalseg_<ct|mri>_organs` (not in the paper; Curia-2 organ recognition A1/A2)
+- Data: TotalSegmentator CT v2.0.1 (1228 scans, 117 structures) and MRI v2.0.0 (616 scans,
+  50 structures), expert masks for every structure (D38).
+- A sample is one (scan, organ): 192³ crop centred on the organ's bounding-box centre, cut at
+  extract time from the whole scan (1 mm, LPS, z-scored with whole-scan mean/std like every
+  other task). Pad: CT -1024 HU, MRI 0, z-scored with the scan's statistics.
+- Label: the organ's class, multi-class. CT class set (ASSUMPTION): the 97 TotalSegmentator
+  v1 classes present in v2 plus v2's merged `heart` (98); MRI: all 50. Organs < 1000 mm³ are
+  not samples. Splits on scans. Headline metric balanced accuracy (not AUROC).
+- Deviation: probe-only, no fine-tuning (glovita keys samples by image file).
+- Leakage caveat: unknown whether TotalSegmentator scans are in nnFoundation's pretraining
+  set (Human Radiome). If they are, the encoder has seen these images (not the labels).

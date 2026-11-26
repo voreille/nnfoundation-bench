@@ -24,6 +24,7 @@ from tqdm import tqdm
 from nnfoundation_bench.config import INTERIM_DATA_DIR, PROCESSED_DATA_DIR
 from nnfoundation_bench.datasets import get_task
 from nnfoundation_bench.modeling.features import probe_folds, task_labels
+from nnfoundation_bench.modeling.runs import refuse_organ_tasks
 from nnfoundation_bench.modeling.survival import probe_kind
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
@@ -147,6 +148,7 @@ def extract(
     overwrite: bool = typer.Option(False, help="Recompute existing features"),
 ) -> None:
     """Extract pyradiomics features inside the ROI of every case of TASK (cached per case)."""
+    refuse_organ_tasks(task, what="radiomics")
     modality = get_task(task).modality
     settings, image_types = extractor_settings(modality), FEATURE_SETS[features]
     cases, _, _ = task_labels(task)
@@ -211,6 +213,7 @@ def probe(
     ),
 ) -> None:
     """Linear probe on radiomics features, every fold (ridge Cox on survival tasks)."""
+    refuse_organ_tasks(task, what="radiomics")
     kind = probe_kind(task)
     classifier = classifier or kind
     allowed = ("cox",) if kind == "cox" else ("logreg", "enet")

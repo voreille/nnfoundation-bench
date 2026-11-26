@@ -284,6 +284,7 @@ def _write_scan_layout(root):
 
 
 def test_extract_organ_task_pools_each_organ_centred_crop(tmp_path, monkeypatch):
+    import blosc2
     import torch
 
     from nnfoundation_bench.modeling import runs
@@ -304,6 +305,26 @@ def test_extract_organ_task_pools_each_organ_centred_crop(tmp_path, monkeypatch)
     monkeypatch.setattr(features, "feature_map", fake_feature_map)
     features.extract(ORGAN_TASK, model="cnn", device="cpu", save_maps=False, overwrite=False)
 
+    # Reference: the organ's bbox centre sits at crop index 95.5 on every axis; outside
+    # the scan the crop holds the z-scored pad. Pooled with the fake encoder above.
+    image = blosc2.open(str(root / "images" / "s0001.b2nd"), mode="r")[...][0]
+    label_map = blosc2.open(str(root / "masks" / "s0001.b2nd"), mode="r")[...][0]
+    ideal = {}
+    for organ, label_id in (("liver", 3), ("spleen", 5)):
+        nz = np.nonzero(label_map == label_id)
+        start = [int(np.floor((nz[a].min() + nz[a].max()) / 2 - 95.5 + 0.5)) for a in range(3)]
+        crop = np.full((192, 192, 192), pad_z, np.float32)
+        organ_crop = np.zeros((192, 192, 192), np.uint8)
+        src = tuple(
+            slice(max(0, s), min(n, s + 192)) for s, n in zip(start, image.shape, strict=True)
+        )
+        dst = tuple(slice(sl.start - s, sl.stop - s) for sl, s in zip(src, start, strict=True))
+        crop[dst] = image[src]
+        organ_crop[dst] = label_map[src] == label_id
+        fmap = fake_feature_map(None, torch.from_numpy(crop)[None, None])[0].numpy()
+        ideal[organ] = pool_features(fmap, organ_crop)
+    del seen[-2:]  # drop the reference crops; keep the ones extract passed in
+
     out = root / "features" / "cnn"
     assert sorted(p.stem for p in out.glob("*.npz")) == cases
     assert len(seen) == 2
@@ -318,10 +339,11 @@ def test_extract_organ_task_pools_each_organ_centred_crop(tmp_path, monkeypatch)
         assert pooled["mean"].shape == (2,)
         assert float(pooled["roi_inside"]) == 1.0
         assert pooled["roi_mean"][1] == pytest.approx(1.0)
-        # Organ cells hold scan and organ voxels; the whole crop is mostly padding.
-        assert pooled["roi_mean"][0] > pooled["mean"][0] + 0.5
-        assert pooled["roi_margin_mean"][0] > pooled["mean"][0]
-        assert pooled["mean"][0] == pytest.approx(pad_z, abs=0.1)
+        # Exact values from an ideal crop built independently with numpy slicing.
+        expected = ideal[case.split("__")[1]]
+        for key in ("mean", "roi_mean", "roi_margin_mean"):
+            assert pooled[key][0] == pytest.approx(expected[key][0], abs=0.01), key
+        assert pooled["roi_mean"][0] > pooled["mean"][0]  # organ cells hold scan voxels
 
 
 def _organ_probe_fixture(tmp_path, monkeypatch, n_scans=30, drop_test_class=None):

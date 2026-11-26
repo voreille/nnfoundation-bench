@@ -10,6 +10,10 @@ features of several single-modality tasks of the same cases (late fusion, D14, D
 The encoder is built with glovita's ``nnFoundationEncoder`` (same weights and
 architecture as fine-tuning). glovita's head sees the mean of this feature map
 (``mean`` below); the other poolings are what we compare against it.
+
+Organ tasks (D38) store whole scans: ``extract`` cuts each organ's 192^3 crop from the scan
+at extract time (``organ_crop``) and ``probe`` fits a multinomial logistic regression,
+scored by balanced accuracy, accuracy and macro one-vs-rest AUROC.
 """
 
 import json
@@ -24,8 +28,17 @@ from tqdm import tqdm
 
 from nnfoundation_bench.config import CROP_SIZE, PROCESSED_DATA_DIR, RESULTS_DIR
 from nnfoundation_bench.datasets import get_task
-from nnfoundation_bench.modeling.predict import binary_metrics
-from nnfoundation_bench.modeling.runs import processed_task, results_dir
+from nnfoundation_bench.modeling.predict import (
+    balanced_accuracy,
+    binary_metrics,
+    multiclass_metrics,
+)
+from nnfoundation_bench.modeling.runs import (
+    is_organ_task,
+    processed_task,
+    refuse_organ_tasks,
+    results_dir,
+)
 from nnfoundation_bench.modeling.survival import (
     fit_cox_probe,
     probe_kind,
@@ -150,6 +163,89 @@ def _read_b2nd(path: Path) -> np.ndarray:
     return blosc2.open(str(path), mode="r")[...]
 
 
+class LazyVolume:
+    """(z, y, x) view of a channel-first b2nd file; slicing reads only the chunks needed."""
+
+    def __init__(self, path: Path):
+        import blosc2
+
+        self.array = blosc2.open(str(path), mode="r")
+        self.shape = tuple(self.array.shape[1:])
+
+    def __getitem__(self, key: tuple[slice, ...]) -> np.ndarray:
+        return self.array[(0, *key)]
+
+
+def organ_bbox(mask: np.ndarray, organ: int) -> tuple[slice, slice, slice]:
+    """Bounding box (slices) of ``mask == organ``; ValueError if the organ is absent."""
+    inside = mask == organ
+    if not inside.any():
+        raise ValueError(f"Label {organ} is not in the mask")
+    box = []
+    for axis in range(3):
+        idx = np.flatnonzero(inside.any(axis=tuple(a for a in range(3) if a != axis)))
+        box.append(slice(int(idx[0]), int(idx[-1]) + 1))
+    return tuple(box)
+
+
+def organ_crop(
+    image,
+    mask: np.ndarray,
+    organ: int,
+    size: int = CROP_SIZE[0],
+    pad: float = 0.0,
+    bbox: tuple[slice, slice, slice] | None = None,
+) -> tuple[np.ndarray, np.ndarray, float]:
+    """``size``^3 crop of ``image`` and of the binary mask ``mask == organ``, centred on the
+    organ's bounding-box centre (as ``roi_center``); ``pad`` outside the scan.
+
+    ``image`` is a (z, y, x) array or anything sliceable like one (``LazyVolume``).
+    ``bbox`` (from ``organ_bbox`` or ``scipy.ndimage.find_objects``) skips the search.
+    Returns (image crop float32, organ mask crop uint8, fraction of the organ inside).
+    """
+    bbox = organ_bbox(mask, organ) if bbox is None else bbox
+    total = int((mask[bbox] == organ).sum())
+    starts = [int(np.floor((b.start + b.stop - 1) / 2 - (size - 1) / 2 + 0.5)) for b in bbox]
+    src = tuple(
+        slice(max(a, 0), min(a + size, n)) for a, n in zip(starts, mask.shape, strict=True)
+    )
+    dst = tuple(slice(s.start - a, s.stop - a) for s, a in zip(src, starts, strict=True))
+    crop = np.full((size,) * 3, pad, np.float32)
+    organ_mask = np.zeros((size,) * 3, np.uint8)
+    crop[dst] = image[src]
+    organ_mask[dst] = mask[src] == organ
+    return crop, organ_mask, float(organ_mask.sum() / total)
+
+
+def _crop_cases(root: Path, cases: list[str]):
+    """(case, image (1, z, y, x), mask (z, y, x)) of the prepared 192^3 crops."""
+    for case in cases:
+        image = _read_b2nd(root / "images" / f"{case}.b2nd")
+        yield case, image, _read_b2nd(root / "masks" / f"{case}.b2nd")[0], {}
+
+
+def _organ_cases(root: Path, cases: list[str]):
+    """(case, organ crop (1, 192^3), organ mask, {roi_inside}) of an organ task: one scan
+    at a time, its image read lazily, crops padded with the scan's z-scored pad value."""
+    from scipy.ndimage import find_objects
+
+    labels = pd.read_csv(root / "labels.csv", dtype={"case_id": str, "scan_id": str})
+    labels = labels.set_index("case_id").loc[cases]
+    organs = pd.read_csv(root / "organs.csv", dtype={"scan_id": str})
+    label_ids = organs.set_index(["scan_id", "organ"])["label_id"]
+    pad_z = pd.read_csv(root / "scans.csv", dtype={"scan_id": str}).set_index("scan_id")["pad_z"]
+    for scan, samples in labels.groupby("scan_id", sort=True):
+        image = LazyVolume(root / "images" / f"{scan}.b2nd")
+        mask = _read_b2nd(root / "masks" / f"{scan}.b2nd")[0]
+        boxes = find_objects(mask)
+        for case, organ in samples["organ"].items():
+            label_id = int(label_ids[(scan, organ)])
+            crop, organ_mask, inside = organ_crop(
+                image, mask, label_id, pad=float(pad_z[scan]), bbox=boxes[label_id - 1]
+            )
+            yield case, crop[None], organ_mask, {"roi_inside": np.float32(inside)}
+
+
 @app.command()
 def extract(
     task: str,
@@ -160,7 +256,11 @@ def extract(
     ),
     overwrite: bool = typer.Option(False, help="Recompute existing features"),
 ) -> None:
-    """Pool frozen-encoder features of every case of TASK (one forward pass each)."""
+    """Pool frozen-encoder features of every case of TASK (one forward pass each).
+
+    Organ tasks: one forward pass per (scan, organ) sample on its organ-centred crop, plus
+    ``roi_inside`` (fraction of the organ inside the crop).
+    """
     import torch
 
     root = PROCESSED_DATA_DIR / task
@@ -173,13 +273,13 @@ def extract(
         return
 
     roi_names = get_task(task).roi_names
+    cases_of = _organ_cases if is_organ_task(task) else _crop_cases
     encoder = build_encoder(model, device)
-    for case in tqdm(todo, desc=f"{task} {model}"):
-        image = torch.from_numpy(_read_b2nd(root / "images" / f"{case}.b2nd"))[None]
-        mask = _read_b2nd(root / "masks" / f"{case}.b2nd")[0]
+    for case, array, mask, extra in tqdm(cases_of(root, todo), total=len(todo), desc=task):
+        image = torch.from_numpy(array)[None]
         with torch.no_grad(), torch.autocast(torch.device(device).type, dtype=torch.bfloat16):
             fmap = feature_map(encoder, image.to(device)).float()[0].cpu().numpy()
-        arrays = pool_features(fmap, mask, roi_names)
+        arrays = pool_features(fmap, mask, roi_names) | extra
         if save_maps:
             arrays["map"] = fmap.astype(np.float16)
         tmp = out_dir / f".partial.{case}.npz"
@@ -218,10 +318,15 @@ def fit_probe(
     split: dict[str, np.ndarray],
     cs=PROBE_CS,
     l1_ratios=(0.0,),
-) -> tuple[np.ndarray, dict, float]:
+    multiclass: bool = False,
+):
     """Logistic regression on train, hyperparameters picked by val AUROC.
 
-    Returns test scores, the chosen ``{"C", "l1_ratio"}`` and the val AUROC. ``l1_ratio``
+    Returns test scores, the chosen ``{"C", "l1_ratio"}`` and the val AUROC. With
+    ``multiclass`` (organ tasks, D38) it is a multinomial regression picked by val balanced
+    accuracy, and returns ``(proba, C, val balanced accuracy)``: ``proba`` is (n_test, K)
+    with one column per class of ``y`` (``np.unique(y)``; 0 for a class missing from
+    train). ``l1_ratio``
     0 is plain L2 (lbfgs); values in (0, 1] give an elastic net (saga), whose L1 part sets
     the weights of redundant features to zero. Missing values (NaN, e.g. a radiomics
     feature on an empty ROI) get the train median; features are then standardised with
@@ -257,12 +362,20 @@ def fit_probe(
                 # val AUROC decides whether that fit is used.
                 warnings.simplefilter("ignore", ConvergenceWarning)
                 clf.fit(x[tr], y[tr])
-            val_scores = clf.predict_proba(x[va])[:, 1]
-            auc = roc_auc_score(y[va], val_scores) if len(np.unique(y[va])) > 1 else np.nan
-            if best[1] is None or auc > best[0]:
-                best = (auc, {"C": c, "l1_ratio": l1_ratio}, clf)
-    val_auc, params, clf = best
-    return clf.predict_proba(x[te])[:, 1], params, float(val_auc)
+            if multiclass:
+                score = balanced_accuracy(y[va], clf.predict(x[va]))
+            else:
+                val_scores = clf.predict_proba(x[va])[:, 1]
+                score = roc_auc_score(y[va], val_scores) if len(np.unique(y[va])) > 1 else np.nan
+            if best[1] is None or score > best[0]:
+                best = (score, {"C": c, "l1_ratio": l1_ratio}, clf)
+    val_score, params, clf = best
+    if not multiclass:
+        return clf.predict_proba(x[te])[:, 1], params, float(val_score)
+    classes = np.unique(y)
+    proba = np.zeros((len(te), len(classes)))
+    proba[:, np.searchsorted(classes, clf.classes_)] = clf.predict_proba(x[te])
+    return proba, params["C"], float(val_score)
 
 
 def task_labels(task: str) -> tuple[list[str], np.ndarray, list[dict]]:
@@ -290,6 +403,8 @@ def probe_folds(
     AUROC (C-index for survival tasks) per fold.
     """
     cases, y, splits = task_labels(task)
+    if is_organ_task(task):
+        return organ_probe_folds(task, run, x, cases, y, splits, select, l1_ratios)
     survival = survival_table(task)
     if survival is not None:
         if l1_ratios != (0.0,):
@@ -323,6 +438,45 @@ def probe_folds(
         scores_per_fold.append(metrics[key])
     mean, std = np.nanmean(scores_per_fold), np.nanstd(scores_per_fold, ddof=1)
     logger.info(f"{run}: test {key} {mean:.4f} ± {std:.4f}")
+    return scores_per_fold
+
+
+def organ_probe_folds(task, run, x, cases, y, splits, select=None, l1_ratios=(0.0,)) -> list:
+    """``probe_folds`` of an organ task: multinomial probe per fold (D38). Writes
+    metrics.json (balanced accuracy, accuracy, macro AUROC), predictions.csv
+    (``case_id,scan_id,organ,label,pred,p_pred``) and probs.npz (``case_id``, ``classes``,
+    ``probs``); returns the test balanced accuracy per fold."""
+    samples = pd.read_csv(
+        PROCESSED_DATA_DIR / processed_task(task) / "labels.csv",
+        dtype={"case_id": str, "scan_id": str},
+    ).set_index("case_id")
+    classes = np.unique(y)
+    index = {c: i for i, c in enumerate(cases)}
+    scores_per_fold = []
+    for fold, split in enumerate(splits):
+        if not split["val"]:
+            raise typer.Exit(f"{task} fold {fold}: empty val split, C cannot be chosen")
+        idx = {k: np.array([index[c] for c in v], dtype=int) for k, v in split.items()}
+        cols = np.arange(x.shape[1]) if select is None else select(x[idx["train"]])
+        proba, c, val = fit_probe(x[:, cols], y, idx, l1_ratios=l1_ratios, multiclass=True)
+        proba = proba.astype(np.float32)
+        test = samples.loc[split["test"], ["scan_id", "organ"]].reset_index()
+        test["label"] = y[idx["test"]]
+        test["pred"] = classes[proba.argmax(1)]
+        test["p_pred"] = proba.max(1)
+        metrics = {"task": task, "run": run, "fold": fold, "num_features": len(cols)}
+        metrics |= {"probe_C": c, "val_balanced_accuracy": val}
+        metrics |= multiclass_metrics(test["label"].to_numpy(), proba, classes)
+        out_dir = results_dir(task, run, fold)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        test.to_csv(out_dir / "predictions.csv", index=False)
+        np.savez(
+            out_dir / "probs.npz", case_id=np.array(split["test"]), classes=classes, probs=proba
+        )
+        (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
+        scores_per_fold.append(metrics["balanced_accuracy"])
+    mean, std = np.nanmean(scores_per_fold), np.nanstd(scores_per_fold, ddof=1)
+    logger.info(f"{run}: test balanced accuracy {mean:.4f} ± {std:.4f}")
     return scores_per_fold
 
 
@@ -426,6 +580,7 @@ def fuse(
     """Late fusion across modalities (D14, D30): M2 concatenation, M3 mean of the
     embeddings (one encoder, one space), M4 score stacking. Results go to
     ``outputs/results/NAME/`` with ``fusion.json`` naming the source tasks."""
+    refuse_organ_tasks(*tasks, what="late fusion")
     check_same_cases(tasks)
     (RESULTS_DIR / name).mkdir(parents=True, exist_ok=True)
     (RESULTS_DIR / name / "fusion.json").write_text(json.dumps({"tasks": tasks}, indent=2))
@@ -533,6 +688,7 @@ def combine(
     """Image probe + covariate probe blended on val (D36). Run
     ``<image run>_plus_<columns>_logreg``; compare with the image run and
     ``covariates_<columns>_logreg`` (``<!-- generated: adjusted TASK -->``)."""
+    refuse_organ_tasks(task, what="image + covariate blends")
     cases, _, _ = task_labels(task)
     columns = column or ["age"]
     x_cov = task_covariates(task, cases, columns)

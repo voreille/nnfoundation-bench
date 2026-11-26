@@ -26,6 +26,12 @@ class ClassificationTask:
 
     Several tasks may share one ``source`` (e.g. KiTS Liver / KiTS Pancreas): they
     then share the raw data and cached intermediate files (ROI masks, conversions).
+
+    An *organ task* (``organ_task=True``, e.g. TotalSegmentator organ recognition, D38) is
+    multi-class instead: a sample is one (scan, organ) pair, ``case_id = <scan>__<organ>``
+    and the label is the organ's class. ``prepare`` stores whole scans with a label map
+    (scan layout) and ``nnfb-features extract`` crops each organ at extract time. It uses
+    ``load_scans``, ``scan_paths`` and ``organ_classes`` instead of ``case_inputs``.
     """
 
     name: str
@@ -59,6 +65,19 @@ class ClassificationTask:
     # Name of a prepared task whose crops, masks and features this task reuses: it
     # differs only in its splits (``official_variant``). None: a task with its own data.
     split_of: str | None = None
+    # Organ task (D38): scan layout, per-organ samples, multi-class labels.
+    organ_task: bool = False
+    # Organ tasks only. () -> one row per scan: ``scan_id`` plus metadata columns
+    # (``split`` = the dataset's official split).
+    load_scans: Callable[[], pd.DataFrame] | None = None
+    # Organ tasks only. scan_id -> (image, folder of ``<structure>.nii.gz`` masks).
+    scan_paths: Callable[[str], tuple[Path, Path]] | None = None
+    # Organ tasks only. () -> the class set: structures that become samples.
+    organ_classes: Callable[[], tuple[str, ...]] | None = None
+
+    @property
+    def is_multiclass(self) -> bool:
+        return self.organ_task
 
 
 def official_variant(task: ClassificationTask) -> ClassificationTask:

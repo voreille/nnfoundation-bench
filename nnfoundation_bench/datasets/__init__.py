@@ -14,6 +14,7 @@ from nnfoundation_bench.datasets.lld_mmri import LLD_MMRI_TASKS
 from nnfoundation_bench.datasets.mrnet import MRNET_TASKS
 from nnfoundation_bench.datasets.rsna_spine import RSNA_SPINE_FRACTURE
 from nnfoundation_bench.datasets.stoic import STOIC_TASKS
+from nnfoundation_bench.datasets.totalsegmentator import TOTALSEG_TASKS
 from nnfoundation_bench.datasets.upenn_gbm import UPENN_OS_TASKS
 
 TASKS: dict[str, ClassificationTask] = {
@@ -29,8 +30,13 @@ TASKS: dict[str, ClassificationTask] = {
         *BRATS_TASKS,
         *UPENN_OS_TASKS,
         *HECKTOR22_RFS_TASKS,
-        # Same data, the challenge's own train/test split as the only fold (D37).
-        *(official_variant(t) for t in (*HECKTOR2022_TASKS, *HECKTOR22_RFS_TASKS)),
+        # Multi-class organ recognition, probe-only (D38).
+        *TOTALSEG_TASKS,
+        # Same data, the dataset's own train/test split as the only fold (D37).
+        *(
+            official_variant(t)
+            for t in (*HECKTOR2022_TASKS, *HECKTOR22_RFS_TASKS, *TOTALSEG_TASKS)
+        ),
     )
 }
 

@@ -66,6 +66,13 @@ images are about 100 GB.
 | `hecktor22_rfs_<pet\|ct>` | HECKTOR 2022 challenge (training + test pooled, 9 centres), PET SUV or CT HU | 692 (134 recur within 2 years; 113 censored before 2 years dropped) | GTVp (challenge mask) | recurrence within 2 years (AUROC) + time/event for the Cox C-index | code + smoke test on 4 cases x 2 modalities |
 | `brats_gbm_<t1c\|t1n\|t2f\|t2w>` | BraTS 2024 post-treatment glioma (Synapse, 5 sites), brain MR, one sequence per task | 632 patients (384 +), earliest scan each | whole tumour (dataset seg, labels 1+2+3) | glioblastoma vs astrocytoma/oligodendroglioma (our assumption) | code + smoke test on 6 cases x 2 sequences |
 | `hecktor2022_rfs_<ct\|pet>` | HECKTOR 2022 training + test (NIfTI), CT or PET (SUV), one task per modality | 827 with RFS (174 relapses), 9 centres | GTVp ∪ GTVn (dataset masks; mask keeps 1 = GTVp, 2 = GTVn) | recurrence-free survival (time, event) | code + smoke test on 5 cases |
+| `totalseg_<ct\|mri>_organs[_official]` | TotalSegmentator CT v2.0.1 / MRI v2.0.0 (Zenodo, placed by hand), expert masks for every structure | 1228 / 616 scans, ~90 / ~40 organ samples per scan | each organ (dataset masks), 192³ crop centred on it at extract time | which organ: 98 (CT) / 50 (MRI) classes, multi-class (Curia-2 A1/A2; CT class set is our assumption) | code + unit tests on synthetic scans; probe-only (D38) |
+
+Organ tasks (`totalseg_*`, D38) are multi-class and probe-only: `prepare` stores whole scans
+at 1 mm with a label map, `nnfb-features extract` cuts each organ's 192³ crop in memory, and
+`nnfb-features probe` reports balanced accuracy, accuracy and macro AUROC. Fine-tuning,
+radiomics, fusion and the covariate / centre / Cox references refuse them. Probes:
+`RADIOMICS="" scripts/run_probes.sh totalseg_ct_organs`.
 
 Progress and results: [docs/progress.md](docs/progress.md). Design decisions:
 [docs/decisions.md](docs/decisions.md). See [references/nnfoundation_protocol.md](references/nnfoundation_protocol.md) for

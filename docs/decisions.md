@@ -718,3 +718,45 @@ Merges D27 (Valentin: survival probes in `nnfb-features probe`) with D31/D32 (ou
   would be the uncertainty to report. Val is 20% of the training cohort (~90 patients for
   the 2-year variant), so hyperparameters are picked on more cases than in the repeated
   splits.
+
+## D38. TotalSegmentator organ recognition: scan layout, per-organ samples, multi-class probe (active, 2026-11-26)
+- **Choice:** tasks `totalseg_ct_organs` (TotalSegmentator CT v2.0.1, 1228 scans, 98
+  classes) and `totalseg_mri_organs` (MRI v2.0.0, 616 scans, 50 classes), plus their
+  `_official` variants (D37), as Curia-2's organ-recognition tasks A1/A2: a sample is one
+  (scan, organ) pair, `case_id = <scan>__<organ>`, label = the organ's class. Probe-only.
+  - **Store scans, crop at extract time.** `prepare` writes per scan one z-scored 1 mm image
+    (LPS identity) and one uint8 label map merged from `segmentations/*.nii.gz` (ids =
+    sorted names of the structure set most scans have, + 1; a scan with another set
+    fails; overlapping voxels go to the first name, and the scan's total (native grid) is
+    repeated on its `organs.csv` rows as `overlap_voxels`). `nnfb-features extract` cuts each organ's 192³ crop from the b2nd in
+    memory, centred on the organ's bounding-box centre, padded with the scan's z-scored pad
+    value (CT -1024 HU, MRI 0), and pools `mean` / `roi_mean` / `roi_margin_mean` on the
+    organ's binary mask, plus `roi_inside` (fraction of the organ inside the crop).
+  - **Classes.** CT: the 97 TotalSegmentator v1 names also in v2, plus v2's `heart` (v1's
+    five heart structures and `pulmonary_artery` merged into it) = 98 (ASSUMPTION: Curia-2
+    lists no class set; v1's `face` is not v2's `skull` and is left out). MRI: all 50. The
+    label map keeps every structure; the class set only selects samples. Organs below
+    `MIN_ORGAN_MM3` = 1000 mm³ in the 1 mm map are not samples; a class with no sample is
+    dropped and listed in `dataset.json`. No cap per class.
+  - **Splits** are drawn on scans (5 repeated 40/10/50, unstratified): all samples of a scan
+    share a split. Official: meta.csv's `split` by scan; CT has its own val, MRI gets 20% of
+    its train scans as val.
+  - **Probe:** multinomial logistic regression, balanced class weights, C on val balanced
+    accuracy. Headline metric: balanced accuracy; also accuracy and macro one-vs-rest AUROC
+    over the classes present in test. `<!-- generated: multiclass -->` tables; organ tasks
+    are left out of `design` / `runs` blocks.
+  - Fine-tuning, radiomics, fusion, covariate / group / Cox references and within-centre
+    metrics refuse organ tasks with a clear error.
+- **Why:** both datasets ship expert masks for every structure, so they test our ROI-pooling
+  choices (whole crop vs organ vs organ + 10 mm) on ~100 ROI types at once, cheaply.
+  Storing 192³ crops per sample would be about 3 TB; whole scans are about 100 GB and the
+  crop size or field of view can change without preparing again.
+- **Rejected:** sliding-window whole-scan features pooled per organ (changes the context
+  relative to the crop protocol; windows not centred on the organ); per-sample symlinked
+  images (glovita would centre-crop the scan, not the organ); reusing `group` for the scan
+  (would break group-baseline and the within-centre metrics); val AUROC for model selection
+  (undefined when val lacks a class).
+- **Open:** whether TotalSegmentator scans are in nnFoundation's self-supervised
+  pretraining set (Human Radiome); if so, features have seen these images, though without
+  labels. Probe fitting on ~45k CT samples x 1056 dims x 98 classes may be slow; a cap per
+  class would then be the first lever.
