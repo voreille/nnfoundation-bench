@@ -33,7 +33,7 @@ class PatchMeanModel:
 
 
 @pytest.mark.parametrize(
-    "name", ["dinov2", "dinov2_3p", "curia", "curia_3p"]
+    "name", ["dinov2", "dinov2_3p", "curia", "curia_3p", "curia2_512"]
 )  # fmt: skip
 def test_slice_map_keeps_volume_orientation(name):
     encoder = SLICE_ENCODERS[name]
@@ -84,6 +84,8 @@ def test_design_rows_for_the_2d_baseline():
     assert ids["vit_frozen_mean_logreg"] == "F1"
     assert ids["curia_frozen_roi_mean_logreg"] == "C2"
     assert ids["curia2_3p_frozen_roi_margin_mean_logreg"] == "C12"
+    assert ids["curia_512_frozen_mean_logreg"] == "C13"
+    assert ids["curia2_512_frozen_roi_mean_logreg"] == "C17"
     grid = design_table({"t": pd.Series({"dinov2_3p_frozen_mean_cox": "0.6"})}, kinds={"t": "cox"})
     assert "| B4 | 0.6 |" in grid
 

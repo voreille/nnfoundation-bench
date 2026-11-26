@@ -32,6 +32,9 @@ SLICE_SIZE = 336
 # Curia was trained on whole slices (typically 512 px at ~0.7 mm); 256 px over the 192 mm
 # crop keeps that pixel size (0.75 mm) instead of zooming in 2.7x. ASSUMPTION, D40.
 CURIA_SLICE_SIZE = 256
+# The processor's own size (Curia-2 ends pre-training at 512 px): 0.375 mm per pixel on
+# our crops, 32 x 32 tokens of 6 mm (D42).
+CURIA_HIGH_RES = 512
 # Fixed intensity windows mapped to [0, 1]. CT: soft tissue (W400 / L40 HU). PET: SUV 0-20
 # (tumour SUVmax in HECKTOR 2022 is 10-19). ASSUMPTION, D38.
 WINDOWS = {"CT": (-160.0, 240.0), "PT": (0.0, 20.0)}
@@ -65,6 +68,10 @@ SLICE_ENCODERS = {
     "curia_3p": SliceEncoder("curia", THREE_PLANES, **_CURIA),
     "curia2": SliceEncoder("curia2", ("axial",), **_CURIA, clip_min=-1000.0),
     "curia2_3p": SliceEncoder("curia2", THREE_PLANES, **_CURIA, clip_min=-1000.0),
+    "curia_512": SliceEncoder("curia", ("axial",), **{**_CURIA, "size": CURIA_HIGH_RES}),
+    "curia2_512": SliceEncoder(
+        "curia2", ("axial",), **{**_CURIA, "size": CURIA_HIGH_RES}, clip_min=-1000.0
+    ),
 }
 
 

@@ -222,11 +222,15 @@ def summarize(task: str) -> None:
     typer.echo(summary.to_string(float_format="%.4f"))
 
 
-def slice_rows(prefix: str, models: tuple[str, ...], kind: str | None = None) -> dict:
-    """Rows ``<prefix>1``... for 2D slice encoders: whole crop, ROI and ROI + 10 mm means
-    per model (as F1-F3), in the order of ``models``. ``kind`` fixes the probe kind."""
+def slice_rows(
+    prefix: str, models: tuple[str, ...], kind: str | None = None, first: int = 1
+) -> dict:
+    """Rows ``<prefix><first>``... for 2D slice encoders: whole crop, ROI and ROI + 10 mm
+    means per model (as F1-F3), in the order of ``models``. ``kind`` fixes the probe kind."""
     return {
-        f"{prefix}{i + 3 * k}": (lambda p, m=m, pool=pool: f"{m}_frozen_{pool}_{kind or p}")
+        f"{prefix}{first - 1 + i + 3 * k}": (
+            lambda p, m=m, pool=pool: f"{m}_frozen_{pool}_{kind or p}"
+        )
         for k, m in enumerate(models)
         for i, pool in enumerate(("mean", "roi_mean", "roi_margin_mean"), start=1)
     }
@@ -234,6 +238,8 @@ def slice_rows(prefix: str, models: tuple[str, ...], kind: str | None = None) ->
 
 # Curia (C1-C6: axial, 3 planes) and Curia-2 (C7-C12), 2D radiology encoders (D40).
 CURIA_MODELS = ("curia", "curia_3p", "curia2", "curia2_3p")
+# Axial slices at 512 px (D42): Curia (C13-C15), Curia-2 (C16-C18).
+CURIA_512_MODELS = ("curia_512", "curia2_512")
 
 # Design-benchmark rows (docs/progress.md) -> run name, given the pretrained model ``m``
 # and the probe kind ``p`` (``logreg``, or ``cox`` on survival tasks).
@@ -258,6 +264,7 @@ DESIGN_RUNS = {
     "B8": lambda p: f"dinov2_frozen_roi_mean_l2_{p}",
     "B9": lambda p: f"dinov2_3p_frozen_roi_mean_l2_{p}",
     **slice_rows("C", CURIA_MODELS),
+    **slice_rows("C", CURIA_512_MODELS, first=13),
     # Late fusion of per-modality ROI-mean embeddings (D14, D30), on a fused task
     # (``nnfb-features fuse``): concatenation, mean, score stacking on val.
     "M2": lambda m, p: f"{m}_fused_concat_roi_mean_{p}",
@@ -391,6 +398,7 @@ COX_DESIGN_RUNS = {
     "B8": lambda p: "dinov2_frozen_roi_mean_l2_cox",
     "B9": lambda p: "dinov2_3p_frozen_roi_mean_l2_cox",
     **slice_rows("C", CURIA_MODELS, "cox"),
+    **slice_rows("C", CURIA_512_MODELS, "cox", first=13),
     "ref-age": lambda p: "covariates_age_cox",
     "ref-age+hpv": lambda p: "covariates_age_hpv_cox",
     "ref-site": lambda p: "covariates_group_cox",

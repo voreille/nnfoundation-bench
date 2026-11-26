@@ -67,6 +67,9 @@ Next steps:
    `uv run nnfb-data download kits_malignant && uv run nnfb-data prepare kits_malignant`,
    then `MODELS="cnn vit" scripts/run_probes.sh kits_malignant` and
    `MODELS="dinov2 dinov2_3p curia curia_3p curia2 curia2_3p" RADIOMICS="" scripts/run_probes.sh kits_malignant`.
+15. Curia at 512 px (C13-C18, D42): code done, smoke-tested on 3 delay cases (0.3-0.4 s
+   per case, 2.4 GB GPU). On the host, after the current Curia loop:
+   `MODELS="curia_512 curia2_512" RADIOMICS="" scripts/run_probes.sh <task>`.
 
 ## Backlog
 
@@ -107,8 +110,12 @@ would trigger it. Move an item to "Next steps" when it is picked up.
   but about 15 lines per case in the logs.
 - **CuriaBench split for `kits_malignant`** (`kits_malignant_curia`, one fold, D41).
   *Trigger:* access to the gated CuriaBench dataset, and C2 results on `kits_malignant`.
-- **Curia at 512 px** (the processor's size, 0.375 mm per pixel on our crops, 32 x 32
-  tokens). *Trigger:* C2 clearly below B2 (D40).
+- **DINOv2 ViT-B as a size-matched control** (`facebook/dinov2-with-registers-base`, 768
+  channels, as Curia). Separates model size (ViT-L vs ViT-B) from training domain in the
+  B2 > C2 gap. *Trigger:* C13-C18 still below B2.
+- **Curia with a per-volume z-score** instead of per slice (one scale for the whole crop,
+  like DINOv2's fixed window; edge slices with little tissue are not stretched).
+  *Trigger:* C13-C18 still below B2.
 - **2D baseline (D38, D39), variants for later.** Each is an extra pooling or input option
   of `nnfb-features extract --model dinov2*`, one re-extraction per task.
   *Trigger:* B2/B5 results on several tasks (LLD-MMRI phases, one CT task), and for the
@@ -197,6 +204,8 @@ runs stay in the per-task runs tables).
 | C6 | Radiology 2D, 3 planes | C4, mean over the ROI + 10 mm | `curia_3p_frozen_roi_margin_mean_<p>` | MRNet n/a | ready (weights gated) |
 | C7-C9 | Radiology 2D | C1-C3 with Curia-2 | `curia2_frozen_<pooling>_<p>` | as C1-C3 | ready (weights gated) |
 | C10-C12 | Radiology 2D, 3 planes | C4-C6 with Curia-2 | `curia2_3p_frozen_<pooling>_<p>` | as C4-C6 | ready (weights gated) |
+| C13-C15 | Radiology 2D, 512 px | C1-C3 with axial slices at 512 px (0.375 mm, 32 x 32 tokens of 6 mm; D42) | `curia_512_frozen_<pooling>_<p>` | as C1-C3 | ready |
+| C16-C18 | Radiology 2D, 512 px | C7-C9 (Curia-2) at 512 px (D42) | `curia2_512_frozen_<pooling>_<p>` | as C1-C3 | ready |
 | S1 | Input size | Fixed 192³ at 1 mm (current preprocessing; same as F1-F3) | see F1-F3 | all | ready |
 | S2 | Input size | Native 1 mm, input size = FOV; ViT absolute position embedding interpolated (glovita default) |  | all | planned |
 | S3 | Input size | Same as S2, but the ViT absolute position embedding is cut out (FOV < 192) instead of interpolated, consistent with RoPE; CNN n/a |  | all | planned |
@@ -1160,3 +1169,9 @@ None yet.
   on 5 of 7 phases (level on arterial, 0.817; above on DWI, C3 0.781 vs 0.757). On delay and venous it is below B2 on all 5 splits. Curia-2 is
   below Curia on 6 of 7 phases, against the paper's ranking: the 256 px input (Curia-2
   ends pre-training at 512 px) is a suspect, so the 512 px backlog item is triggered.
+- Curia / Curia-2 at 512 px added (D42, rows C13-C18; axial only): the 256 px default
+  gives 12 mm tokens and Curia-2 ends pre-training at 512 px. Smoke test on 3 delay cases:
+  (768, 192, 32, 32) maps, 0.3-0.4 s per case, 2.4 GB GPU. Possible causes of DINOv2 >
+  Curia noted for the backlog: model size (ViT-L vs ViT-B), token size, CT-heavy
+  pre-training (164M CT vs 64M MR images), whole-slice training vs our 192 mm crops and
+  per-slice z-score.

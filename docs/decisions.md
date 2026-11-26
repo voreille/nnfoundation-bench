@@ -819,3 +819,17 @@ Merges D27 (Valentin: survival probes in `nnfb-features probe`) with D31/D32 (ou
   (an image and a mask per row), so even with their split our 3D crops are not the same
   input. Strong imbalance (9 % benign): AUROC is still fine, but each test fold has only
   ~21 benign cases.
+
+## D42. Curia / Curia-2 at 512 px (active, 2026-11-26)
+- **Choice:** models `curia_512` and `curia2_512`: as `curia` / `curia2` (D40), axial
+  slices only, resized to 512 px (the processor's `crop_size`) instead of 256 px: 0.375 mm
+  per pixel on the 192 mm crop, 32 x 32 tokens of 6 mm, map (768, 192, 32, 32). Rows
+  C13-C15 (Curia) and C16-C18 (Curia-2), same poolings. D40's 256 px default stays.
+- **Why:** on LLD-MMRI (7 phases) Curia is below DINOv2 and Curia-2 below Curia, against
+  the Curia-2 paper's ranking. Curia-2 ends its pre-training at 512 px, and the 12 mm
+  tokens at 256 px are coarse next to small liver lesions (DINOv2: 8 mm). 512 px tests
+  both: finer ROI pooling and the model's final training size. The cost: the 192 mm crop
+  is zoomed ~2x relative to Curia's whole-slice training views.
+- **Rejected for now:** 3 planes at 512 px (the axial runs decide whether it is worth it).
+- **Open:** if 512 px helps, it is unclear whether through finer tokens or the input size;
+  the pooling-grid check (backlog, D38) would separate the two.
