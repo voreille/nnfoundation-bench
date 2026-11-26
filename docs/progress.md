@@ -1151,3 +1151,12 @@ None yet.
   published reference. Smoke test on the 2 KiTS cases on this machine: crops centred on
   the tumour (8.5k and 11.4k tumour voxels), finite DINOv2 / Curia / Curia-2 features.
   CuriaBench's own split is gated separately (access not requested); parked in the backlog.
+- Curia / Curia-2 on 7 LLD-MMRI phases (host, 2026-11-26; `pre` still running). ROI mean,
+  Curia axial (C2) / Curia-2 axial (C8) / DINOv2 axial (B2) / nnFoundation ViT (F2): delay
+  0.861 / 0.845 / 0.899 / 0.867, venous 0.841 / 0.814 / 0.882 / 0.837, T2 0.811 / 0.809 /
+  0.797 / 0.808, arterial 0.817 / 0.775 / 0.805 / 0.746, DWI 0.770 / 0.749 / 0.757 / 0.748,
+  in-phase 0.761 / 0.740 / 0.729 / 0.760, out-of-phase 0.718 / 0.721 / 0.728 / 0.697.
+  The best Curia run is level with or above F2, but below the best DINOv2 run (B2 or B5)
+  on 5 of 7 phases (level on arterial, 0.817; above on DWI, C3 0.781 vs 0.757). On delay and venous it is below B2 on all 5 splits. Curia-2 is
+  below Curia on 6 of 7 phases, against the paper's ranking: the 256 px input (Curia-2
+  ends pre-training at 512 px) is a suspect, so the 512 px backlog item is triggered.
