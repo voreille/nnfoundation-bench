@@ -66,7 +66,7 @@ def download_metadata() -> None:
 
 
 def download_images(max_workers: int = 8, folder: str = "images") -> None:
-    """Fetch the 489 training CTs (``images``, ~100 GB) or their expert segmentations
+    """Fetch the 489 training CTs (``images``, 42 GB) or their expert segmentations
     (``segmentations``). Resumable: re-running skips finished files."""
     from huggingface_hub import snapshot_download
 

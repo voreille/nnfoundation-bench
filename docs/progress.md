@@ -63,7 +63,7 @@ Next steps:
    0.3-0.4 s with 3 planes, ~1.1 GB GPU. On the host, for a prepared task:
    `MODELS="curia curia_3p curia2 curia2_3p" RADIOMICS="" scripts/run_probes.sh <task>`.
 14. `kits_malignant` (D41), Curia's kidney tumour malignancy task: code done, smoke-tested on
-   the 2 local KiTS cases. On the host (images ~100 GB, shared with `kits_liver`):
+   the 2 local KiTS cases. On the host (images 42 GB, masks 0.1 GB, shared with `kits_liver`):
    `uv run nnfb-data download kits_malignant && uv run nnfb-data prepare kits_malignant`,
    then `MODELS="cnn vit" scripts/run_probes.sh kits_malignant` and
    `MODELS="dinov2 dinov2_3p curia curia_3p curia2 curia2_3p" RADIOMICS="" scripts/run_probes.sh kits_malignant`.

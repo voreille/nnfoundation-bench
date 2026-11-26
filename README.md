@@ -50,7 +50,7 @@ Training needs a large `/dev/shm` for DataLoader workers (one sample is about 28
 In a small-shm container, pass `--num-workers 0`.
 
 Set `NNFB_DATA_DIR=/big/disk/nnfb` to keep data outside the repo. KiTS23 raw
-images are about 100 GB.
+images are 42 GB (plus 0.1 GB of segmentations for `kits_malignant`).
 
 ## Tasks
 
