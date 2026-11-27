@@ -480,3 +480,24 @@ def test_organ_probe_test_set_missing_a_class_still_scores(tmp_path, monkeypatch
     )
     assert metrics["auroc_macro"] == pytest.approx(expected)
     assert metrics["balanced_accuracy"] == 1.0
+
+
+def test_dilate_matches_a_full_volume_distance_transform():
+    """dilate may work on the ROI's neighbourhood only; the result must equal the plain
+    full-volume definition (EDT to the ROI <= margin), also at the array borders."""
+    from scipy.ndimage import distance_transform_edt
+
+    from nnfoundation_bench.modeling.features import dilate
+
+    rng = np.random.default_rng(0)
+    for shape, box, margin in (
+        ((40, 50, 60), (slice(10, 20), slice(5, 15), slice(30, 45)), 10.0),
+        ((40, 50, 60), (slice(0, 4), slice(45, 50), slice(0, 3)), 10.0),  # touches 3 borders
+        ((30, 30, 30), (slice(2, 28), slice(2, 28), slice(2, 28)), 3.5),  # nearly whole volume
+        ((20, 20, 20), (slice(9, 10), slice(9, 10), slice(9, 10)), 0.0),  # one voxel, no margin
+    ):
+        mask = np.zeros(shape, bool)
+        mask[box] = rng.random(mask[box].shape) > 0.3
+        expected = distance_transform_edt(~mask) <= margin
+        np.testing.assert_array_equal(dilate(mask, margin), expected)
+    assert not dilate(np.zeros((5, 5, 5), bool), 10.0).any()
