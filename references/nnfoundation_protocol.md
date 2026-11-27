@@ -173,5 +173,8 @@ datasets" matches the 8 test rows; RSNA Spine and MRNet were used only for devel
   v1 classes present in v2 plus v2's merged `heart` (98); MRI: all 50. Organs < 1000 mm³ are
   not samples. Splits on scans. Headline metric balanced accuracy (not AUROC).
 - Deviation: probe-only, no fine-tuning (glovita keys samples by image file).
+- Many v2.0.1 NIfTI headers (CT and some masks) have sform directions off orthonormal by
+  ~2e-4, which ITK refuses; they are read with the nearest orthonormal direction
+  (`read_image`, < 0.05 mm shift at the scan corners).
 - Leakage caveat: unknown whether TotalSegmentator scans are in nnFoundation's pretraining
   set (Human Radiome). If they are, the encoder has seen these images (not the labels).

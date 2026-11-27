@@ -445,3 +445,67 @@ def _read(path):
     import blosc2
 
     return blosc2.open(str(path), mode="r")[...]
+
+
+# ------------------------------------------------------------ non-orthonormal NIfTI headers
+
+
+def _nifti_with_affine(path, array_xyz, affine):
+    import nibabel as nib
+
+    image = nib.Nifti1Image(array_xyz, affine)
+    image.set_qform(None, code=0)  # TotalSegmentator v2.0.1: sform only
+    image.set_sform(affine, code=2)
+    nib.save(image, str(path))
+
+
+def _sloppy_affine():
+    """1.5 mm, rotated, with float32-like rounding: directions off orthonormal by ~2e-4."""
+    angle = np.deg2rad(10)
+    c, s = np.cos(angle), np.sin(angle)
+    rotation = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+    rotation[0, 1] += 2e-4
+    affine = np.eye(4)
+    affine[:3, :3] = rotation * 1.5
+    affine[:3, 3] = (-100.0, 50.0, 20.0)
+    return affine
+
+
+def test_read_image_accepts_nearly_orthonormal_directions(tmp_path):
+    """Regression: 3 of 4 TotalSegmentator CT scans failed with 'ITK only supports
+    orthonormal direction cosines'; such files are read with the nearest orthonormal
+    direction, voxel values and physical positions unchanged (to 0.1 mm)."""
+    from nnfoundation_bench.preprocessing import read_image
+
+    array_xyz = np.arange(6 * 5 * 4, dtype=np.int16).reshape(6, 5, 4)
+    affine = _sloppy_affine()
+    path = tmp_path / "sloppy.nii.gz"
+    _nifti_with_affine(path, array_xyz, affine)
+    with pytest.raises(RuntimeError, match="orthonormal"):
+        sitk.ReadImage(str(path))  # precondition: plain SimpleITK refuses it
+
+    image = read_image(path)
+    np.testing.assert_array_equal(sitk.GetArrayFromImage(image), array_xyz.transpose(2, 1, 0))
+    direction = np.array(image.GetDirection()).reshape(3, 3)
+    np.testing.assert_allclose(direction.T @ direction, np.eye(3), atol=1e-9)
+    np.testing.assert_allclose(image.GetSpacing(), np.linalg.norm(affine[:3, :3], axis=0))
+    lps = np.diag([-1.0, -1.0, 1.0])
+    for index in ((0, 0, 0), (5, 4, 3), (5, 0, 3)):
+        expected = lps @ (affine[:3, :3] @ np.array(index) + affine[:3, 3])
+        got = np.array(image.TransformIndexToPhysicalPoint(index))
+        np.testing.assert_allclose(got, expected, atol=0.1)
+
+
+def test_read_image_is_simpleitk_on_valid_files(tmp_path):
+    from nnfoundation_bench.preprocessing import read_image
+
+    image = sitk.GetImageFromArray(np.arange(60, dtype=np.float32).reshape(3, 4, 5))
+    image.SetSpacing((0.7, 0.8, 2.5))
+    image.SetOrigin((1.0, -2.0, 3.0))
+    image.SetDirection((0, 0, 1, 0, 1, 0, -1, 0, 0))
+    sitk.WriteImage(image, tmp_path / "ok.nii.gz")
+    expected, got = sitk.ReadImage(tmp_path / "ok.nii.gz"), read_image(tmp_path / "ok.nii.gz")
+    np.testing.assert_array_equal(sitk.GetArrayFromImage(got), sitk.GetArrayFromImage(expected))
+    assert got.GetSpacing() == expected.GetSpacing()
+    assert got.GetOrigin() == expected.GetOrigin()
+    assert got.GetDirection() == expected.GetDirection()

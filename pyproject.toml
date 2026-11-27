@@ -13,6 +13,7 @@ dependencies = [
     "glovita[mlflow]",
     "huggingface-hub>=0.24",
     "loguru",
+    "nibabel>=5",
     "numpy",
     "okapy",
     "openpyxl>=3.1.5",

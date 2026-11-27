@@ -40,6 +40,33 @@ Point = tuple[float, float, float]
 IDENTITY = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
 
 
+def read_image(path: Path) -> sitk.Image:
+    """``sitk.ReadImage``, also for NIfTI files whose direction is not quite orthonormal.
+
+    ITK refuses such headers ("ITK only supports orthonormal direction cosines"); e.g.
+    TotalSegmentator v2.0.1 sforms are off by ~2e-4 (float32 rounding), in the image and
+    some masks of most scans. Those are read with nibabel and given the nearest orthonormal
+    direction (polar decomposition), which moves voxels by well under 0.1 mm.
+    """
+    try:
+        return sitk.ReadImage(str(path))
+    except RuntimeError as e:
+        if "orthonormal" not in str(e):
+            raise
+    import nibabel as nib
+
+    nifti = nib.load(str(path))
+    affine = nifti.affine
+    spacing = np.linalg.norm(affine[:3, :3], axis=0)
+    u, _, vt = np.linalg.svd(affine[:3, :3] / spacing)
+    ras_to_lps = np.diag([-1.0, -1.0, 1.0])
+    image = sitk.GetImageFromArray(np.asanyarray(nifti.dataobj).transpose(2, 1, 0))
+    image.SetSpacing(spacing.tolist())
+    image.SetDirection((ras_to_lps @ u @ vt).flatten().tolist())
+    image.SetOrigin((ras_to_lps @ affine[:3, 3]).tolist())
+    return image
+
+
 def roi_center(mask: sitk.Image, label: int) -> Point | None:
     """Physical centre of the bounding box of ``label`` in ``mask`` (None if absent)."""
     stats = sitk.LabelShapeStatisticsImageFilter()
@@ -137,7 +164,7 @@ def merge_label_map(seg_dir: Path, classes: tuple[str, ...]) -> tuple[sitk.Image
         raise ValueError(f"{len(classes)} classes do not fit in uint8")
     out, reference, overlap = None, None, 0
     for label_id, name in enumerate(classes, start=1):
-        mask = sitk.ReadImage(seg_dir / f"{name}.nii.gz")
+        mask = read_image(seg_dir / f"{name}.nii.gz")
         view = sitk.GetArrayViewFromImage(mask)
         if out is None:
             out, reference = np.zeros(view.shape, np.uint8), mask
@@ -388,7 +415,7 @@ def _process_case(
     case_id: str,
 ):
     """Crop one case around its ROI; returns whether the ROI is present in the crop."""
-    image = sitk.Cast(sitk.ReadImage(inputs.image), sitk.sitkFloat32)
+    image = sitk.Cast(read_image(inputs.image), sitk.sitkFloat32)
     if task.intensity_min is not None:
         image = sitk.Maximum(image, float(task.intensity_min))
     array = sitk.GetArrayViewFromImage(image)
@@ -398,7 +425,7 @@ def _process_case(
         mask = sitk.Image(image.GetSize(), sitk.sitkUInt8)
         mask.CopyInformation(image)
     else:
-        mask = binary_roi(sitk.ReadImage(inputs.roi_mask), inputs.roi_label, task.keep_roi_labels)
+        mask = binary_roi(read_image(inputs.roi_mask), inputs.roi_label, task.keep_roi_labels)
     center = roi_center(sitk.Cast(mask > 0, sitk.sitkUInt8), 1)  # union of the ROI labels
     if center is None:
         center = image_center(image)
@@ -544,7 +571,7 @@ def _process_scan(
     """Resample one scan and its merged label map (``structures``, already checked against
     the scan's files) to 1 mm; returns its scans.csv row and organs.csv rows."""
     image_path, seg_dir = task.scan_paths(scan_id)
-    image = sitk.Cast(sitk.ReadImage(image_path), sitk.sitkFloat32)
+    image = sitk.Cast(read_image(image_path), sitk.sitkFloat32)
     if task.intensity_min is not None:
         image = sitk.Maximum(image, float(task.intensity_min))
     array = sitk.GetArrayViewFromImage(image)

@@ -1128,3 +1128,11 @@ None yet.
   192³ crop at extract time; the probe is a multinomial logistic regression scored by
   balanced accuracy, accuracy and macro AUROC (`multiclass` generated block). Other
   commands refuse organ tasks. Unit-tested on synthetic scans; to run on the host.
+
+### 2026-11-27
+- TotalSegmentator CT on lxbelwahoo: dataset unzipped on the NAS (1228 CT / 616 MRI subjects, linked
+  in the shared data root). Smoke prepare on 4 CT scans: 3 failed in SimpleITK ("ITK only supports
+  orthonormal direction cosines"): their sform directions are off orthonormal by ~2e-4 (in the CT
+  and ~26 of 118 masks per scan). `preprocessing.read_image` now reads such files with nibabel and
+  the nearest orthonormal direction (corner shift < 0.05 mm); nibabel declared as a dependency.
+  Rerun: 4 scans, 124 samples, 79 classes, no failures.
